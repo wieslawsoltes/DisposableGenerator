@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use DisposableGenerator"
+  short_description: "Install and apply explicit disposal ownership"
+  default_prompt: "Use $use-disposable-generator to install DisposableGenerator and implement the correct ownership pattern."

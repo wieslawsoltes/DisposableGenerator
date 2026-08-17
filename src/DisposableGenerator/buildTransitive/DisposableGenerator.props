@@ -1,0 +1,25 @@
+<Project>
+  <PropertyGroup>
+    <DisposableGenerator_GenerateRegistrationMethod Condition="'$(DisposableGenerator_GenerateRegistrationMethod)' == ''">true</DisposableGenerator_GenerateRegistrationMethod>
+    <DisposableGenerator_RegistrationMethodName Condition="'$(DisposableGenerator_RegistrationMethodName)' == ''">RegisterDisposable</DisposableGenerator_RegistrationMethodName>
+    <DisposableGenerator_AsyncRegistrationMethodName Condition="'$(DisposableGenerator_AsyncRegistrationMethodName)' == ''">RegisterAsyncDisposable</DisposableGenerator_AsyncRegistrationMethodName>
+    <DisposableGenerator_PostDisposeRegistrationBehavior Condition="'$(DisposableGenerator_PostDisposeRegistrationBehavior)' == ''">Throw</DisposableGenerator_PostDisposeRegistrationBehavior>
+    <DisposableGenerator_MemberDisposalOrder Condition="'$(DisposableGenerator_MemberDisposalOrder)' == ''">ReverseDeclaration</DisposableGenerator_MemberDisposalOrder>
+    <DisposableGenerator_RegisteredResourceDisposalOrder Condition="'$(DisposableGenerator_RegisteredResourceDisposalOrder)' == ''">ReverseRegistration</DisposableGenerator_RegisteredResourceDisposalOrder>
+    <DisposableGenerator_DisposalExceptionBehavior Condition="'$(DisposableGenerator_DisposalExceptionBehavior)' == ''">StopOnFirst</DisposableGenerator_DisposalExceptionBehavior>
+    <DisposableGenerator_GenerateDisposalHooks Condition="'$(DisposableGenerator_GenerateDisposalHooks)' == ''">true</DisposableGenerator_GenerateDisposalHooks>
+    <DisposableGenerator_ReportUnownedDisposableFields Condition="'$(DisposableGenerator_ReportUnownedDisposableFields)' == ''">true</DisposableGenerator_ReportUnownedDisposableFields>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <CompilerVisibleProperty Include="DisposableGenerator_GenerateRegistrationMethod" />
+    <CompilerVisibleProperty Include="DisposableGenerator_RegistrationMethodName" />
+    <CompilerVisibleProperty Include="DisposableGenerator_AsyncRegistrationMethodName" />
+    <CompilerVisibleProperty Include="DisposableGenerator_PostDisposeRegistrationBehavior" />
+    <CompilerVisibleProperty Include="DisposableGenerator_MemberDisposalOrder" />
+    <CompilerVisibleProperty Include="DisposableGenerator_RegisteredResourceDisposalOrder" />
+    <CompilerVisibleProperty Include="DisposableGenerator_DisposalExceptionBehavior" />
+    <CompilerVisibleProperty Include="DisposableGenerator_GenerateDisposalHooks" />
+    <CompilerVisibleProperty Include="DisposableGenerator_ReportUnownedDisposableFields" />
+  </ItemGroup>
+</Project>
