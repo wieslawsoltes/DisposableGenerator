@@ -38,19 +38,33 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             static (node, _) => node is VariableDeclaratorSyntax or PropertyDeclarationSyntax,
             static (attributeContext, _) => attributeContext.TargetSymbol);
 
-        context.RegisterSourceOutput(
-            generatedTypes.Collect()
-                .Combine(ownedMembers.Collect())
-                .Combine(borrowedMembers.Collect())
-                .Combine(options)
-                .Combine(context.CompilationProvider),
-            static (output, item) => GenerateTypes(
-                output,
-                item.Left.Left.Left.Left,
-                item.Left.Left.Left.Right,
-                item.Left.Left.Right,
+        var generatedTypeModels = generatedTypes
+            .Combine(options)
+            .Combine(context.CompilationProvider)
+            .Select(static (item, _) => CreateTypeOutput(
+                item.Left.Left,
                 item.Left.Right,
                 item.Right));
+
+        context.RegisterSourceOutput(
+            generatedTypeModels,
+            static (output, model) => EmitType(output, model));
+
+        context.RegisterSourceOutput(
+            ownedMembers.Combine(options).Combine(context.CompilationProvider),
+            static (output, item) => ValidateOwnedMember(
+                output,
+                item.Left.Left,
+                item.Right,
+                item.Left.Right));
+
+        context.RegisterSourceOutput(
+            borrowedMembers.Combine(options).Combine(context.CompilationProvider),
+            static (output, item) => ValidateBorrowedMember(
+                output,
+                item.Left.Left,
+                item.Right,
+                item.Left.Right));
     }
 
     private static void ReportConfigurationErrors(SourceProductionContext context, GeneratorOptions options)
@@ -66,117 +80,85 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateTypes(
-        SourceProductionContext context,
-        ImmutableArray<INamedTypeSymbol> types,
-        ImmutableArray<ISymbol> ownedMembers,
-        ImmutableArray<ISymbol> borrowedMembers,
+    private static DisposableGenerationOutput CreateTypeOutput(
+        INamedTypeSymbol type,
         GeneratorOptions options,
         Compilation compilation)
     {
-        var candidateSet = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
-        var distinctCandidates = new List<INamedTypeSymbol>();
-        foreach (var type in types)
+        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
+        var availability = CreateGenerationAvailability(options, compilation);
+        if (!TryCreateTypeModel(
+                diagnostics.Add,
+                type,
+                options,
+                compilation,
+                availability,
+                out var model))
         {
-            var definition = type.OriginalDefinition;
-            if (candidateSet.Add(definition))
-            {
-                distinctCandidates.Add(definition);
-            }
-        }
-
-        var candidates = distinctCandidates
-            .OrderBy(InheritanceDepth)
-            .ToArray();
-        var generatedTypes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
-        var models = new List<DisposableTypeModel>();
-
-        foreach (var type in candidates)
-        {
-            if (TryCreateTypeModel(
-                    context,
-                    type,
-                    options,
-                    compilation,
-                    candidateSet,
-                    generatedTypes,
-                    out var model))
-            {
-                generatedTypes.Add(type);
-                models.Add(model!);
-            }
-        }
-
-        foreach (var member in ownedMembers)
-        {
-            ValidateOwnedMember(context, member, compilation, generatedTypes);
-        }
-
-        foreach (var member in borrowedMembers)
-        {
-            ValidateBorrowedMember(context, member, compilation, generatedTypes);
+            return new DisposableGenerationOutput(null, null, diagnostics.ToImmutable());
         }
 
         var disposableInterface = compilation.GetSpecialType(SpecialType.System_IDisposable);
         var asyncDisposableInterface = compilation.GetTypeByMetadataName("System.IAsyncDisposable");
-        foreach (var model in models)
+        var members = GetValidOwnedMembers(
+            model!.Type,
+            disposableInterface,
+            asyncDisposableInterface,
+            model.GenerateAsyncDispose,
+            availability);
+        members.Sort((left, right) => CompareOwnedMembers(left, right, options.MemberDisposalOrder));
+
+        ReportImplicitOwnedBackingFields(diagnostics.Add, model.Type);
+        if (options.ReportUnownedDisposableFields)
         {
-            var members = GetValidOwnedMembers(
+            ReportUnownedMembers(
+                diagnostics.Add,
                 model.Type,
                 disposableInterface,
                 asyncDisposableInterface,
-                model.GenerateAsyncDispose,
-                generatedTypes);
-            members.Sort((left, right) => CompareOwnedMembers(left, right, options.MemberDisposalOrder));
-
-            ReportImplicitOwnedBackingFields(context, model.Type);
-            if (options.ReportUnownedDisposableFields)
-            {
-                ReportUnownedMembers(
-                    context,
-                    model.Type,
-                    disposableInterface,
-                    asyncDisposableInterface,
-                    generatedTypes);
-            }
-
-            var completedModel = new DisposableTypeModel(
-                model.Type,
-                model.HasGeneratedBase,
-                members,
-                model.GenerateSynchronousDispose,
-                model.GenerateAsyncDispose,
-                model.GenerateUnmanagedCleanup,
-                model.GenerateFinalizer,
-                model.Options);
-            context.AddSource(HintName(model.Type), SourceText.From(SourceEmitter.Emit(completedModel), Encoding.UTF8));
+                availability);
         }
+
+        var completedModel = new DisposableTypeModel(
+            model.Type,
+            model.HasGeneratedBase,
+            members,
+            model.GenerateSynchronousDispose,
+            model.GenerateAsyncDispose,
+            model.GenerateUnmanagedCleanup,
+            model.GenerateFinalizer,
+            model.Options);
+        return new DisposableGenerationOutput(
+            HintName(model.Type),
+            SourceEmitter.Emit(completedModel),
+            diagnostics.ToImmutable());
     }
 
-    private static int InheritanceDepth(INamedTypeSymbol type)
+    private static void EmitType(SourceProductionContext context, DisposableGenerationOutput output)
     {
-        var depth = 0;
-        for (var current = type.BaseType; current is not null; current = current.BaseType)
+        foreach (var diagnostic in output.Diagnostics)
         {
-            depth++;
+            context.ReportDiagnostic(diagnostic);
         }
 
-        return depth;
+        if (output.HintName is not null && output.Source is not null)
+        {
+            context.AddSource(output.HintName, SourceText.From(output.Source, Encoding.UTF8));
+        }
     }
 
     private static bool TryCreateTypeModel(
-        SourceProductionContext context,
+        Action<Diagnostic>? reportDiagnostic,
         INamedTypeSymbol type,
         GeneratorOptions options,
         Compilation compilation,
-        HashSet<INamedTypeSymbol> candidates,
-        HashSet<INamedTypeSymbol> generatedTypes,
+        Func<INamedTypeSymbol, bool> generationAvailable,
         out DisposableTypeModel? model)
     {
         model = null;
         if (type.TypeKind != TypeKind.Class || type.IsStatic || type.IsRecord)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.UnsupportedType,
                 type.BestLocation(),
                 type.ToDisplayString()));
@@ -191,7 +173,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         if ((!generateSynchronousDispose && !generateAsyncDispose) ||
             (generateFinalizer && !generateSynchronousDispose))
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.InvalidGenerationMode,
                 type.BestLocation(),
                 type.ToDisplayString()));
@@ -201,7 +183,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         var asyncDisposableInterface = compilation.GetTypeByMetadataName("System.IAsyncDisposable");
         if (generateAsyncDispose && asyncDisposableInterface is null)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.AsyncDisposeUnavailable,
                 type.BestLocation(),
                 type.ToDisplayString()));
@@ -210,7 +192,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
 
         if (!type.IsPartial() || SymbolHelpers.ContainingTypesOuterFirst(type).Any(containing => !containing.IsPartial()))
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.TypeMustBePartial,
                 type.BestLocation(),
                 type.ToDisplayString()));
@@ -219,7 +201,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
 
         if (type.IsFileLocal() || SymbolHelpers.ContainingTypesOuterFirst(type).Any(SymbolHelpers.IsFileLocal))
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.FileLocalTypeUnsupported,
                 type.BestLocation(),
                 type.ToDisplayString()));
@@ -228,7 +210,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
 
         if (DeclaresDisposalMethod(type))
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.ManualDisposeImplementation,
                 type.BestLocation(),
                 type.ToDisplayString()));
@@ -237,7 +219,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
 
         if (type.GetMembers().OfType<IMethodSymbol>().Any(method => method.MethodKind == MethodKind.Destructor))
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.FinalizerUnsupported,
                 type.BestLocation(),
                 type.ToDisplayString()));
@@ -248,7 +230,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         var hasGeneratedBase = generatedBase is not null;
         if (generatedBase is not null)
         {
-            if (!IsAvailableGeneratedBase(generatedBase, candidates, generatedTypes))
+            if (!generationAvailable(generatedBase))
             {
                 return false;
             }
@@ -257,7 +239,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             if (generateSynchronousDispose != baseAttribute.GetNamedBoolean("GenerateSynchronousDispose", defaultValue: true) ||
                 generateAsyncDispose != baseAttribute.GetNamedBoolean("GenerateAsyncDispose"))
             {
-                context.ReportDiagnostic(Diagnostic.Create(
+                reportDiagnostic?.Invoke(Diagnostic.Create(
                     DiagnosticDescriptors.AsyncGenerationMismatch,
                     type.BestLocation(),
                     type.ToDisplayString()));
@@ -268,7 +250,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         var disposableInterface = compilation.GetSpecialType(SpecialType.System_IDisposable);
         if (!hasGeneratedBase && HasUnsupportedDisposableBase(type, disposableInterface))
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.UnsupportedDisposableBase,
                 type.BestLocation(),
                 type.ToDisplayString()));
@@ -279,7 +261,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             asyncDisposableInterface is not null &&
             HasUnsupportedAsyncDisposableBase(type, asyncDisposableInterface))
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.UnsupportedAsyncDisposableBase,
                 type.BestLocation(),
                 type.ToDisplayString()));
@@ -293,7 +275,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 generateAsyncDispose,
                 compilation))
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.UnsupportedBaseDisposeHook,
                 type.BestLocation(),
                 type.ToDisplayString()));
@@ -301,7 +283,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         }
 
         if (ReportGeneratedMemberCollisions(
-                context,
+                reportDiagnostic,
                 type,
                 hasGeneratedBase,
                 generateSynchronousDispose,
@@ -325,24 +307,57 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         return true;
     }
 
-    private static bool IsAvailableGeneratedBase(
-        INamedTypeSymbol generatedBase,
-        HashSet<INamedTypeSymbol> candidates,
-        HashSet<INamedTypeSymbol> generatedTypes)
+    private static Func<INamedTypeSymbol, bool> CreateGenerationAvailability(
+        GeneratorOptions options,
+        Compilation compilation)
     {
-        var definition = generatedBase.OriginalDefinition;
-        if (candidates.Contains(definition))
+        var results = new Dictionary<INamedTypeSymbol, bool>(SymbolEqualityComparer.Default);
+        var evaluating = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        return type => IsGenerationAvailable(type, options, compilation, results, evaluating);
+    }
+
+    private static bool IsGenerationAvailable(
+        INamedTypeSymbol type,
+        GeneratorOptions options,
+        Compilation compilation,
+        Dictionary<INamedTypeSymbol, bool> results,
+        HashSet<INamedTypeSymbol> evaluating)
+    {
+        var definition = type.OriginalDefinition;
+        if (results.TryGetValue(definition, out var cached))
         {
-            return generatedTypes.Contains(definition);
+            return cached;
         }
 
-        if (definition.DeclaringSyntaxReferences.Length > 0)
+        if (!definition.HasAttribute(SymbolHelpers.GenerateDisposableAttributeName))
+        {
+            results[definition] = false;
+            return false;
+        }
+
+        if (definition.DeclaringSyntaxReferences.Length == 0)
+        {
+            var available = definition.HasAttribute(SymbolHelpers.GeneratedDisposableAttributeName) ||
+                            HasExpectedGeneratedCoreMethods(type);
+            results[definition] = available;
+            return available;
+        }
+
+        if (!evaluating.Add(definition))
         {
             return false;
         }
 
-        return definition.HasAttribute(SymbolHelpers.GeneratedDisposableAttributeName) ||
-               HasExpectedGeneratedCoreMethods(generatedBase);
+        var result = TryCreateTypeModel(
+            reportDiagnostic: null,
+            definition,
+            options,
+            compilation,
+            generatedBase => IsGenerationAvailable(generatedBase, options, compilation, results, evaluating),
+            out _);
+        evaluating.Remove(definition);
+        results[definition] = result;
+        return result;
     }
 
     private static bool HasExpectedGeneratedCoreMethods(INamedTypeSymbol type)
@@ -377,14 +392,14 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             Accessibility.Protected or
             Accessibility.ProtectedOrInternal;
 
-    private static void ReportImplicitOwnedBackingFields(SourceProductionContext context, INamedTypeSymbol type)
+    private static void ReportImplicitOwnedBackingFields(Action<Diagnostic> reportDiagnostic, INamedTypeSymbol type)
     {
         foreach (var field in type.GetMembers().OfType<IFieldSymbol>().Where(field =>
                      field.IsImplicitlyDeclared &&
                      field.HasAttribute(SymbolHelpers.DisposeMemberAttributeName)))
         {
             var associatedMember = field.AssociatedSymbol ?? field;
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic(Diagnostic.Create(
                 DiagnosticDescriptors.InvalidOwnedMember,
                 associatedMember.BestLocation(),
                 associatedMember.Name));
@@ -395,8 +410,9 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         SourceProductionContext context,
         ISymbol member,
         Compilation compilation,
-        HashSet<INamedTypeSymbol> generatedTypes)
+        GeneratorOptions options)
     {
+        var generationAvailable = CreateGenerationAvailability(options, compilation);
         var containingType = member.ContainingType;
         if (containingType is null)
         {
@@ -431,8 +447,8 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         var disposableInterface = compilation.GetSpecialType(SpecialType.System_IDisposable);
         var asyncDisposableInterface = compilation.GetTypeByMetadataName("System.IAsyncDisposable");
         var memberType = GetMemberType(member);
-        var supportsSynchronousDispose = memberType is not null && memberType.IsDisposable(disposableInterface, generatedTypes);
-        var supportsAsynchronousDispose = memberType is not null && memberType.IsAsyncDisposable(asyncDisposableInterface, generatedTypes);
+        var supportsSynchronousDispose = memberType is not null && memberType.IsDisposable(disposableInterface, generationAvailable);
+        var supportsAsynchronousDispose = memberType is not null && memberType.IsAsyncDisposable(asyncDisposableInterface, generationAvailable);
         if (memberType is not null && !supportsSynchronousDispose && !supportsAsynchronousDispose)
         {
             context.ReportDiagnostic(Diagnostic.Create(
@@ -477,8 +493,9 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         SourceProductionContext context,
         ISymbol member,
         Compilation compilation,
-        HashSet<INamedTypeSymbol> generatedTypes)
+        GeneratorOptions options)
     {
+        var generationAvailable = CreateGenerationAvailability(options, compilation);
         var containingType = member.ContainingType;
         if (containingType is null)
         {
@@ -498,8 +515,8 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         var memberType = GetMemberType(member);
         if (!IsSupportedOwnedMember(member) ||
             memberType is null ||
-            (!memberType.IsDisposable(disposableInterface, generatedTypes) &&
-             !memberType.IsAsyncDisposable(asyncDisposableInterface, generatedTypes)))
+            (!memberType.IsDisposable(disposableInterface, generationAvailable) &&
+             !memberType.IsAsyncDisposable(asyncDisposableInterface, generationAvailable)))
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 DiagnosticDescriptors.InvalidBorrowedMember,
@@ -513,7 +530,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         INamedTypeSymbol disposableInterface,
         INamedTypeSymbol? asyncDisposableInterface,
         bool generateAsyncDispose,
-        HashSet<INamedTypeSymbol> generatedTypes)
+        Func<INamedTypeSymbol, bool> generationAvailable)
     {
         var result = new List<OwnedMemberModel>();
         foreach (var member in type.GetMembers().Where(member =>
@@ -528,8 +545,8 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             var memberType = GetMemberType(member);
             if (memberType is not null)
             {
-                var supportsSynchronousDispose = memberType.IsDisposable(disposableInterface, generatedTypes);
-                var supportsAsynchronousDispose = memberType.IsAsyncDisposable(asyncDisposableInterface, generatedTypes);
+                var supportsSynchronousDispose = memberType.IsDisposable(disposableInterface, generationAvailable);
+                var supportsAsynchronousDispose = memberType.IsAsyncDisposable(asyncDisposableInterface, generationAvailable);
                 if (supportsSynchronousDispose || (generateAsyncDispose && supportsAsynchronousDispose))
                 {
                     result.Add(new OwnedMemberModel(
@@ -612,7 +629,9 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         method.Parameters.Length == 0 &&
         (method.Name == "DisposeAsync" ||
          method.Name == "DisposeAsyncCore" ||
-         method.ExplicitInterfaceImplementations.Any(implementation => implementation.Name == "DisposeAsync"));
+         method.ExplicitInterfaceImplementations.Any(implementation =>
+             implementation.Name == "DisposeAsync" &&
+             implementation.ContainingType.ToDisplayString() == "System.IAsyncDisposable"));
 
     private static INamedTypeSymbol? FindGeneratedBase(INamedTypeSymbol type)
     {
@@ -707,7 +726,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         compilation.IsSymbolAccessibleWithin(method, type);
 
     private static bool ReportGeneratedMemberCollisions(
-        SourceProductionContext context,
+        Action<Diagnostic>? reportDiagnostic,
         INamedTypeSymbol type,
         bool hasGeneratedBase,
         bool generateSynchronousDispose,
@@ -716,46 +735,46 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         GeneratorOptions options,
         Compilation compilation)
     {
-        var hasCollision = ReportSimpleCollision(context, type, "__DisposableGenerator_disposeState", compilation);
+        var hasCollision = ReportSimpleCollision(reportDiagnostic, type, "__DisposableGenerator_disposeState", compilation);
         if (generateSynchronousDispose)
         {
-            hasCollision |= ReportDisposeNameCollision(context, type, compilation);
+            hasCollision |= ReportDisposeNameCollision(reportDiagnostic, type, compilation);
         }
 
         if (generateAsyncDispose)
         {
-            hasCollision |= ReportSimpleCollision(context, type, "DisposeAsync", compilation, static item => item is not IMethodSymbol);
-            hasCollision |= ReportAsyncCoreCollision(context, type, hasGeneratedBase, compilation);
+            hasCollision |= ReportSimpleCollision(reportDiagnostic, type, "DisposeAsync", compilation, static item => item is not IMethodSymbol);
+            hasCollision |= ReportAsyncCoreCollision(reportDiagnostic, type, hasGeneratedBase, compilation);
             if (generateSynchronousDispose && !hasGeneratedBase)
             {
-                hasCollision |= ReportSimpleCollision(context, type, "__DisposableGenerator_asyncCleanupCompleted", compilation);
+                hasCollision |= ReportSimpleCollision(reportDiagnostic, type, "__DisposableGenerator_asyncCleanupCompleted", compilation);
             }
         }
 
         if (!hasGeneratedBase && options.GenerateRegistrationMethod)
         {
-            hasCollision |= ReportSimpleCollision(context, type, "__DisposableGenerator_disposalStarted", compilation);
-            hasCollision |= ReportSimpleCollision(context, type, "__DisposableGenerator_disposeGate", compilation);
-            hasCollision |= ReportSimpleCollision(context, type, "__DisposableGenerator_registeredDisposables", compilation);
-            hasCollision |= ReportRegistrationMethodTypeNameCollision(context, type, options.RegistrationMethodName);
-            hasCollision |= ReportRegistrationMethodCollision(context, type, options.RegistrationMethodName, compilation);
+            hasCollision |= ReportSimpleCollision(reportDiagnostic, type, "__DisposableGenerator_disposalStarted", compilation);
+            hasCollision |= ReportSimpleCollision(reportDiagnostic, type, "__DisposableGenerator_disposeGate", compilation);
+            hasCollision |= ReportSimpleCollision(reportDiagnostic, type, "__DisposableGenerator_registeredDisposables", compilation);
+            hasCollision |= ReportRegistrationMethodTypeNameCollision(reportDiagnostic, type, options.RegistrationMethodName);
+            hasCollision |= ReportRegistrationMethodCollision(reportDiagnostic, type, options.RegistrationMethodName, compilation);
             if (generateAsyncDispose)
             {
-                hasCollision |= ReportRegistrationMethodTypeNameCollision(context, type, options.AsyncRegistrationMethodName);
-                hasCollision |= ReportRegistrationMethodCollision(context, type, options.AsyncRegistrationMethodName, compilation);
+                hasCollision |= ReportRegistrationMethodTypeNameCollision(reportDiagnostic, type, options.AsyncRegistrationMethodName);
+                hasCollision |= ReportRegistrationMethodCollision(reportDiagnostic, type, options.AsyncRegistrationMethodName, compilation);
             }
         }
 
         if (options.GenerateDisposalHooks)
         {
             hasCollision |= ReportHookCollision(
-                context,
+                reportDiagnostic,
                 type,
                 "OnDisposing",
                 DiagnosticDescriptors.InvalidDisposalHook,
                 compilation);
             hasCollision |= ReportHookCollision(
-                context,
+                reportDiagnostic,
                 type,
                 "OnDisposed",
                 DiagnosticDescriptors.InvalidDisposalHook,
@@ -766,17 +785,17 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         {
             if (generateSynchronousDispose)
             {
-                hasCollision |= ReportSimpleCollision(context, type, "__DisposableGenerator_unmanagedDisposeState", compilation);
+                hasCollision |= ReportSimpleCollision(reportDiagnostic, type, "__DisposableGenerator_unmanagedDisposeState", compilation);
             }
 
-            hasCollision |= ReportUnmanagedHookCollision(context, type, compilation);
+            hasCollision |= ReportUnmanagedHookCollision(reportDiagnostic, type, compilation);
         }
 
         return hasCollision;
     }
 
     private static bool ReportRegistrationMethodTypeNameCollision(
-        SourceProductionContext context,
+        Action<Diagnostic>? reportDiagnostic,
         INamedTypeSymbol type,
         string methodName)
     {
@@ -785,7 +804,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             return false;
         }
 
-        context.ReportDiagnostic(Diagnostic.Create(
+        reportDiagnostic?.Invoke(Diagnostic.Create(
             DiagnosticDescriptors.GeneratedMemberCollision,
             type.BestLocation(),
             methodName,
@@ -794,7 +813,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
     }
 
     private static bool ReportSimpleCollision(
-        SourceProductionContext context,
+        Action<Diagnostic>? reportDiagnostic,
         INamedTypeSymbol type,
         string memberName,
         Compilation compilation,
@@ -806,7 +825,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             return false;
         }
 
-        context.ReportDiagnostic(Diagnostic.Create(
+        reportDiagnostic?.Invoke(Diagnostic.Create(
             DiagnosticDescriptors.GeneratedMemberCollision,
             DiagnosticLocation(member, type),
             memberName,
@@ -815,7 +834,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
     }
 
     private static bool ReportRegistrationMethodCollision(
-        SourceProductionContext context,
+        Action<Diagnostic>? reportDiagnostic,
         INamedTypeSymbol type,
         string methodName,
         Compilation compilation)
@@ -830,7 +849,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             return false;
         }
 
-        context.ReportDiagnostic(Diagnostic.Create(
+        reportDiagnostic?.Invoke(Diagnostic.Create(
             DiagnosticDescriptors.GeneratedMemberCollision,
             DiagnosticLocation(member, type),
             methodName,
@@ -839,7 +858,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
     }
 
     private static bool ReportDisposeNameCollision(
-        SourceProductionContext context,
+        Action<Diagnostic>? reportDiagnostic,
         INamedTypeSymbol type,
         Compilation compilation)
     {
@@ -849,7 +868,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             return false;
         }
 
-        context.ReportDiagnostic(Diagnostic.Create(
+        reportDiagnostic?.Invoke(Diagnostic.Create(
             DiagnosticDescriptors.GeneratedMemberCollision,
             DiagnosticLocation(member, type),
             "Dispose",
@@ -864,7 +883,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         SymbolEqualityComparer.Default.Equals(method.Parameters[0].Type, method.TypeParameters[0]);
 
     private static bool ReportHookCollision(
-        SourceProductionContext context,
+        Action<Diagnostic>? reportDiagnostic,
         INamedTypeSymbol type,
         string hookName,
         DiagnosticDescriptor descriptor,
@@ -889,7 +908,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         }
 
         var conflictingMember = declaredMembers.FirstOrDefault() ?? inheritedMember!;
-        context.ReportDiagnostic(Diagnostic.Create(
+        reportDiagnostic?.Invoke(Diagnostic.Create(
             descriptor,
             DiagnosticLocation(conflictingMember, type),
             hookName,
@@ -898,18 +917,18 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
     }
 
     private static bool ReportUnmanagedHookCollision(
-        SourceProductionContext context,
+        Action<Diagnostic>? reportDiagnostic,
         INamedTypeSymbol type,
         Compilation compilation) =>
         ReportHookCollision(
-            context,
+            reportDiagnostic,
             type,
             "DisposeUnmanaged",
             DiagnosticDescriptors.InvalidUnmanagedCleanupHook,
             compilation);
 
     private static bool ReportAsyncCoreCollision(
-        SourceProductionContext context,
+        Action<Diagnostic>? reportDiagnostic,
         INamedTypeSymbol type,
         bool hasGeneratedBase,
         Compilation compilation)
@@ -923,7 +942,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 return false;
             }
 
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic?.Invoke(Diagnostic.Create(
                 DiagnosticDescriptors.GeneratedMemberCollision,
                 declared.BestLocation(),
                 "DisposeAsyncCore",
@@ -932,7 +951,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         }
 
         return ReportSimpleCollision(
-            context,
+            reportDiagnostic,
             type,
             "DisposeAsyncCore",
             compilation,
@@ -993,11 +1012,11 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
     }
 
     private static void ReportUnownedMembers(
-        SourceProductionContext context,
+        Action<Diagnostic> reportDiagnostic,
         INamedTypeSymbol type,
         INamedTypeSymbol disposableInterface,
         INamedTypeSymbol? asyncDisposableInterface,
-        HashSet<INamedTypeSymbol> generatedTypes)
+        Func<INamedTypeSymbol, bool> generationAvailable)
     {
         foreach (var member in type.GetMembers())
         {
@@ -1011,13 +1030,13 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
 
             var memberType = GetMemberType(member);
             if (memberType is null ||
-                (!memberType.IsDisposable(disposableInterface, generatedTypes) &&
-                 !memberType.IsAsyncDisposable(asyncDisposableInterface, generatedTypes)))
+                (!memberType.IsDisposable(disposableInterface, generationAvailable) &&
+                 !memberType.IsAsyncDisposable(asyncDisposableInterface, generationAvailable)))
             {
                 continue;
             }
 
-            context.ReportDiagnostic(Diagnostic.Create(
+            reportDiagnostic(Diagnostic.Create(
                 DiagnosticDescriptors.UnownedDisposableMember,
                 member.BestLocation(),
                 member.Name));

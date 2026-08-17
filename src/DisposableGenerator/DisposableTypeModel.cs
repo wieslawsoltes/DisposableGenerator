@@ -1,7 +1,27 @@
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 
 namespace DisposableGenerator;
+
+internal sealed class DisposableGenerationOutput
+{
+    internal DisposableGenerationOutput(
+        string? hintName,
+        string? source,
+        ImmutableArray<Diagnostic> diagnostics)
+    {
+        HintName = hintName;
+        Source = source;
+        Diagnostics = diagnostics;
+    }
+
+    internal string? HintName { get; }
+
+    internal string? Source { get; }
+
+    internal ImmutableArray<Diagnostic> Diagnostics { get; }
+}
 
 internal sealed class DisposableTypeModel
 {

@@ -879,6 +879,58 @@ public sealed class GeneratorDiagnosticTests
     }
 
     [Fact]
+    public void Explicit_unrelated_interface_DisposeAsync_on_owner_does_not_report_DISP005()
+    {
+        const string source = """
+            using DisposableGenerator;
+
+            public interface IFoo
+            {
+                void DisposeAsync();
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner : IFoo
+            {
+                void IFoo.DisposeAsync() { }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP005");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("public async global::System.Threading.Tasks.ValueTask DisposeAsync()", result.GeneratedSource);
+    }
+
+    [Fact]
+    public void Explicit_unrelated_interface_DisposeAsync_on_base_does_not_report_DISP016()
+    {
+        const string source = """
+            using DisposableGenerator;
+
+            public interface IFoo
+            {
+                void DisposeAsync();
+            }
+
+            public class FrameworkBase : IFoo
+            {
+                void IFoo.DisposeAsync() { }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner : FrameworkBase { }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP016");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("public async global::System.Threading.Tasks.ValueTask DisposeAsync()", result.GeneratedSource);
+    }
+
+    [Fact]
     public void Generic_base_Dispose_overload_does_not_report_DISP016()
     {
         const string source = """
