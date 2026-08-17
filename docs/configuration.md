@@ -14,13 +14,13 @@ When `false`, no registration collection or synchronous/asynchronous registratio
 
 Default: `RegisterDisposable`.
 
-The value must be a valid C# identifier and cannot be a keyword. The method remains private on sealed roots and protected on inheritable roots regardless of its name.
+The value must be a valid C# identifier and cannot be a keyword. The method remains private on sealed roots and protected on inheritable roots regardless of its name. Its generic resource parameter is constrained to disposable reference types; use `[DisposeMember]` for owned disposable structs so their state is not separated by boxing.
 
 ### `DisposableGenerator_AsyncRegistrationMethodName`
 
 Default: `RegisterAsyncDisposable`.
 
-The value follows the same identifier rules as the synchronous registration name, and the two names must be distinct. It names the generated `ValueTask<T>` registration method available when `GenerateAsyncDispose` is enabled on the attribute. Callers must await the returned operation.
+The value follows the same identifier rules as the synchronous registration name, and the two names must be distinct. It names the generated `ValueTask<T>` registration method available when `GenerateAsyncDispose` is enabled on the attribute. The resource must be a reference type, and callers must await the returned operation.
 
 ### `DisposableGenerator_PostDisposeRegistrationBehavior`
 

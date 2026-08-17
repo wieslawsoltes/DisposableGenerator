@@ -32,10 +32,9 @@ public abstract partial class ViewModelBase : ReactiveObject
     protected ApplicationService ApplicationService => _applicationService;
 
     protected T Track<T>(T disposable)
-        where T : IDisposable => RegisterDisposable(disposable);
+        where T : class, IDisposable => RegisterDisposable(disposable);
 
     partial void OnDisposing() => _log.Add($"{DisplayName}:base-disposing");
 
     partial void OnDisposed() => _log.Add($"{DisplayName}:base-disposed");
 }
-

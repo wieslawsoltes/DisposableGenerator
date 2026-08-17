@@ -98,11 +98,11 @@ public sealed partial class AsyncSession
     private readonly IAsyncDisposable _connection;
 
     public ValueTask<T> OwnAsync<T>(T resource)
-        where T : IAsyncDisposable => RegisterAsyncDisposable(resource);
+        where T : class, IAsyncDisposable => RegisterAsyncDisposable(resource);
 }
 ```
 
-Consume that type with `await using` or `await DisposeAsync()`. Async registration returns `ValueTask<T>` and must be awaited. The synchronous and asynchronous paths share one atomic lifetime state, so concurrent or repeated calls perform cleanup once. Every generated level in an inheritance chain must use the same sync/async mode.
+Consume that type with `await using` or `await DisposeAsync()`. Async registration returns `ValueTask<T>` and must be awaited. Dynamic registration accepts reference types only so the registered and returned value is always the same instance; use `[DisposeMember]` for disposable structs. The synchronous and asynchronous paths share one atomic lifetime state, so concurrent or repeated calls perform cleanup once. Every generated level in an inheritance chain must use the same sync/async mode.
 
 `OnDisposing()` and `OnDisposed()` remain synchronous notifications on both paths. Represent custom awaitable cleanup as an `IAsyncDisposable` member or dynamically registered resource so the generator can await it and apply the selected exception policy.
 

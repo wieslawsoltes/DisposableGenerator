@@ -106,7 +106,7 @@ internal sealed partial class ConfiguredAsyncOwner
     }
 
     internal ValueTask<T> AddAsync<T>(T value)
-        where T : IAsyncDisposable => OwnAsync(value);
+        where T : class, IAsyncDisposable => OwnAsync(value);
 }
 
 internal readonly struct DisposableToken(string name, ICollection<string> events) : IDisposable

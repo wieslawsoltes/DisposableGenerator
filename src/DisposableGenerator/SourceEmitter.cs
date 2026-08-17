@@ -236,11 +236,11 @@ internal static class SourceEmitter
         var access = type.IsSealed ? "private" : "protected";
         var typeParameter = SymbolHelpers.RegistrationTypeParameterName(type);
         Line(builder, indent, "/// <summary>Registers a dynamically owned disposable and returns the same instance.</summary>");
-        Line(builder, indent, "/// <typeparam name=\"" + typeParameter + "\">The disposable type.</typeparam>");
+        Line(builder, indent, "/// <typeparam name=\"" + typeParameter + "\">The disposable reference type.</typeparam>");
         Line(builder, indent, "/// <param name=\"disposable\">The resource whose lifetime is owned by this instance.</param>");
         Line(builder, indent, "/// <returns><paramref name=\"disposable\" />.</returns>");
         Line(builder, indent, access + " " + typeParameter + " " + options.RegistrationMethodName + "<" + typeParameter + ">(" + typeParameter + " disposable)");
-        Line(builder, indent, "    where " + typeParameter + " : global::System.IDisposable");
+        Line(builder, indent, "    where " + typeParameter + " : class, global::System.IDisposable");
         Line(builder, indent, "{");
         Line(builder, indent + 1, "if (global::System.Object.ReferenceEquals(disposable, null))");
         Line(builder, indent + 1, "{");
@@ -283,11 +283,11 @@ internal static class SourceEmitter
             ? "async "
             : string.Empty;
         Line(builder, indent, "/// <summary>Registers a dynamically owned asynchronous disposable and returns the same instance.</summary>");
-        Line(builder, indent, "/// <typeparam name=\"" + typeParameter + "\">The asynchronous disposable type.</typeparam>");
+        Line(builder, indent, "/// <typeparam name=\"" + typeParameter + "\">The asynchronous disposable reference type.</typeparam>");
         Line(builder, indent, "/// <param name=\"disposable\">The resource whose lifetime is owned by this instance.</param>");
         Line(builder, indent, "/// <returns>An operation whose result is <paramref name=\"disposable\" />.</returns>");
         Line(builder, indent, access + " " + asyncModifier + "global::System.Threading.Tasks.ValueTask<" + typeParameter + "> " + options.AsyncRegistrationMethodName + "<" + typeParameter + ">(" + typeParameter + " disposable)");
-        Line(builder, indent, "    where " + typeParameter + " : global::System.IAsyncDisposable");
+        Line(builder, indent, "    where " + typeParameter + " : class, global::System.IAsyncDisposable");
         Line(builder, indent, "{");
         Line(builder, indent + 1, "if (global::System.Object.ReferenceEquals(disposable, null))");
         Line(builder, indent + 1, "{");

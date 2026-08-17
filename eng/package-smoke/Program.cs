@@ -64,7 +64,7 @@ internal sealed partial class AsyncOwner
     }
 
     internal ValueTask<T> AddDynamicAsync<T>(T disposable)
-        where T : IAsyncDisposable => OwnAsync(disposable);
+        where T : class, IAsyncDisposable => OwnAsync(disposable);
 }
 
 internal sealed class AsyncTracked(string name, ICollection<string> events) : IAsyncDisposable

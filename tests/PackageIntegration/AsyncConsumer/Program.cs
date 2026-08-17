@@ -73,7 +73,7 @@ internal sealed partial class AsyncOnlyOwner
     }
 
     internal ValueTask<T> AddAsync<T>(T value)
-        where T : IAsyncDisposable => RegisterAsyncDisposable(value);
+        where T : class, IAsyncDisposable => RegisterAsyncDisposable(value);
 }
 
 [GenerateDisposable(GenerateAsyncDispose = true)]

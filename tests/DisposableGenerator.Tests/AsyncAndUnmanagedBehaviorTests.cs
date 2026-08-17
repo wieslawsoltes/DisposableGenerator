@@ -741,6 +741,46 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
+    public void Dynamic_registration_rejects_disposable_value_types()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            [GenerateDisposable(GenerateAsyncDispose = true)]
+            public sealed partial class Owner
+            {
+                public DisposableValue Add(DisposableValue resource) => RegisterDisposable(resource);
+                public ValueTask<AsyncDisposableValue> AddAsync(AsyncDisposableValue resource) =>
+                    RegisterAsyncDisposable(resource);
+            }
+
+            public struct DisposableValue : IDisposable
+            {
+                public void Dispose() { }
+            }
+
+            public struct AsyncDisposableValue : IAsyncDisposable
+            {
+                public ValueTask DisposeAsync() => default;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(
+            "where T : class, global::System.IDisposable",
+            result.GeneratedSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "where T : class, global::System.IAsyncDisposable",
+            result.GeneratedSource,
+            StringComparison.Ordinal);
+        Assert.Equal(2, result.AllDiagnostics.Count(diagnostic => diagnostic.Id == "CS0452"));
+    }
+
+    [Fact]
     public async Task AsyncOnlyOwnerDisposesMembersRegistrationsAndHooksInOrder()
     {
         const string source = """
@@ -777,7 +817,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
                     _second = new AsyncResource("second", events);
                 }
 
-                public ValueTask<T> AddAsync<T>(T resource) where T : IAsyncDisposable => RegisterAsyncDisposable(resource);
+                public ValueTask<T> AddAsync<T>(T resource) where T : class, IAsyncDisposable => RegisterAsyncDisposable(resource);
                 partial void OnDisposing() => _events.Add("hook:disposing");
                 partial void OnDisposed() => _events.Add("hook:disposed");
             }
@@ -935,7 +975,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
             [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
             public partial class BaseOwner
             {
-                public ValueTask<T> AddAsync<T>(T resource) where T : IAsyncDisposable =>
+                public ValueTask<T> AddAsync<T>(T resource) where T : class, IAsyncDisposable =>
                     RegisterAsyncDisposable(resource);
             }
 
@@ -1137,7 +1177,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
             {
                 [DisposeMember] private readonly IAsyncDisposable _baseResource;
                 protected BaseOwner(List<string> events) => _baseResource = new Resource("base", events);
-                protected ValueTask<T> AddAsync<T>(T resource) where T : IAsyncDisposable => RegisterAsyncDisposable(resource);
+                protected ValueTask<T> AddAsync<T>(T resource) where T : class, IAsyncDisposable => RegisterAsyncDisposable(resource);
             }
 
             [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
@@ -1145,7 +1185,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
             {
                 [DisposeMember] private readonly IAsyncDisposable _derivedResource;
                 public Owner(List<string> events) : base(events) => _derivedResource = new Resource("derived", events);
-                public new ValueTask<T> AddAsync<T>(T resource) where T : IAsyncDisposable => base.AddAsync(resource);
+                public new ValueTask<T> AddAsync<T>(T resource) where T : class, IAsyncDisposable => base.AddAsync(resource);
             }
 
             public sealed class Resource(string name, List<string> events) : IAsyncDisposable
@@ -1312,7 +1352,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
             [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
             public sealed partial class Owner
             {
-                public ValueTask<T> AddAsync<T>(T resource) where T : IAsyncDisposable => RegisterAsyncDisposable(resource);
+                public ValueTask<T> AddAsync<T>(T resource) where T : class, IAsyncDisposable => RegisterAsyncDisposable(resource);
             }
 
             public sealed class Resource(List<string> events) : IAsyncDisposable

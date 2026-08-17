@@ -125,7 +125,7 @@ internal sealed partial class LeafOwner
     }
 
     internal T Own<T>(T resource)
-        where T : IDisposable => RegisterDisposable(resource);
+        where T : class, IDisposable => RegisterDisposable(resource);
 
     partial void OnDisposing() => _events.Add("hook:disposing");
 
