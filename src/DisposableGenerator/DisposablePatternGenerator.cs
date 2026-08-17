@@ -568,7 +568,9 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
     private static bool IsMutableOwnedMember(ISymbol member) => member switch
     {
         IFieldSymbol field => !field.IsReadOnly,
-        IPropertySymbol property => property.SetMethod is { IsInitOnly: false },
+        IPropertySymbol property =>
+            property.RefKind == RefKind.Ref ||
+            property.SetMethod is { IsInitOnly: false },
         _ => false,
     };
 

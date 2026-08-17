@@ -1091,6 +1091,7 @@ public sealed class GeneratorDiagnosticTests
     [Theory]
     [InlineData("[DisposeMember] private System.IDisposable? _resource;")]
     [InlineData("[DisposeMember] public System.IDisposable? Resource { get; set; }")]
+    [InlineData("private System.IDisposable _resource = null!; [DisposeMember] public ref System.IDisposable Resource => ref _resource;")]
     public void Mutable_owned_member_reports_DISP018(string member)
     {
         var source = $$"""
@@ -1105,6 +1106,26 @@ public sealed class GeneratorDiagnosticTests
         var result = GeneratorTestHarness.Run(source);
 
         Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP018");
+    }
+
+    [Fact]
+    public void Ref_readonly_owned_property_does_not_report_DISP018()
+    {
+        const string source = """
+            using DisposableGenerator;
+            [GenerateDisposable]
+            public partial class Owner
+            {
+                private System.IDisposable _resource = null!;
+                [DisposeMember]
+                public ref readonly System.IDisposable Resource => ref _resource;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP018");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
     }
 
     [Fact]
