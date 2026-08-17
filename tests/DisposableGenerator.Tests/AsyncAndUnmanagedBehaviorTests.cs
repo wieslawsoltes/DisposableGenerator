@@ -745,6 +745,90 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
+    public async Task Class_constrained_generic_properties_are_not_detached()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<string> Run()
+                {
+                    var syncResource = new Resource();
+                    var syncOwner = new SyncOwner<Resource>(syncResource);
+                    syncOwner.Dispose();
+
+                    var asyncResource = new Resource();
+                    var asyncOwner = new AsyncOwner<Resource>(asyncResource);
+                    await asyncOwner.DisposeAsync();
+
+                    return syncResource.SyncCalls + "," + asyncResource.AsyncCalls + "," +
+                        syncOwner.SetterCalls + "," + asyncOwner.SetterCalls;
+                }
+            }
+
+            [GenerateDisposable]
+            public sealed partial class SyncOwner<T> where T : class, IDisposable
+            {
+                private T _resource;
+                public SyncOwner(T resource) => _resource = resource;
+                public int SetterCalls { get; private set; }
+
+                [DisposeMember]
+                public T Resource
+                {
+                    get => _resource;
+                    set
+                    {
+                        _resource = value ?? throw new ArgumentNullException(nameof(value));
+                        SetterCalls++;
+                    }
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class AsyncOwner<T> where T : class, IAsyncDisposable
+            {
+                private T _resource;
+                public AsyncOwner(T resource) => _resource = resource;
+                public int SetterCalls { get; private set; }
+
+                [DisposeMember]
+                public T Resource
+                {
+                    get => _resource;
+                    set
+                    {
+                        _resource = value ?? throw new ArgumentNullException(nameof(value));
+                        SetterCalls++;
+                    }
+                }
+            }
+
+            public sealed class Resource : IDisposable, IAsyncDisposable
+            {
+                public int SyncCalls { get; private set; }
+                public int AsyncCalls { get; private set; }
+                public void Dispose() => SyncCalls++;
+                public ValueTask DisposeAsync()
+                {
+                    AsyncCalls++;
+                    return default;
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.DoesNotContain("this.Resource = default", result.GeneratedSource, StringComparison.Ordinal);
+        var task = (Task<string>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal("1,1,0,0", await task);
+    }
+
+    [Fact]
     public async Task Async_struct_property_writeback_does_not_overwrite_a_replacement_during_await()
     {
         const string source = """

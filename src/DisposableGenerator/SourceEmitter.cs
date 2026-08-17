@@ -1393,7 +1393,13 @@ internal static class SourceEmitter
         {
             RefKind: RefKind.None,
             SetMethod.IsInitOnly: false,
-        };
+        } && !IsKnownReferenceType(member);
+
+    private static bool IsKnownReferenceType(OwnedMemberModel member)
+    {
+        var type = member.Symbol is IFieldSymbol field ? field.Type : ((IPropertySymbol)member.Symbol).Type;
+        return type.IsReferenceType || type is ITypeParameterSymbol { HasReferenceTypeConstraint: true };
+    }
 
     private static bool UsesByReferenceHelper(OwnedMemberModel member) =>
         CanDisposeByReference(member) || CanWriteBack(member);
