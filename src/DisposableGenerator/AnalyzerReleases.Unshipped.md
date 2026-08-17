@@ -18,7 +18,7 @@ DISP012 | DisposableGenerator | Error | User members cannot collide with generat
 DISP013 | DisposableGenerator | Warning | BorrowedMember requires GenerateDisposable
 DISP014 | DisposableGenerator | Warning | BorrowedMember requires a readable instance IDisposable or IAsyncDisposable member
 DISP015 | DisposableGenerator | Error | Disposal hooks must use the supported partial implementation signature
-DISP016 | DisposableGenerator | Error | Non-generated accessible Dispose() and Dispose(bool) base members are unsupported
+DISP016 | DisposableGenerator | Error | Non-generated Dispose(), Dispose(bool), DisposeAsync(), and DisposeAsyncCore() base members are unsupported
 DISP017 | DisposableGenerator | Error | Handwritten finalizers conflict with the generator-owned finalization contract
 DISP018 | DisposableGenerator | Info | Mutable owned members can leak replaced resources
 DISP019 | DisposableGenerator | Error | Async generation requires System.IAsyncDisposable in the target compilation

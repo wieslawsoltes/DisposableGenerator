@@ -778,6 +778,82 @@ public sealed class GeneratorDiagnosticTests
     }
 
     [Fact]
+    public void Intervening_base_Dispose_method_reports_DISP016_in_generated_hierarchy()
+    {
+        const string source = """
+            using System;
+            using DisposableGenerator;
+
+            [GenerateDisposable]
+            public partial class GeneratedBase { }
+
+            public class InterveningBase : GeneratedBase, IDisposable
+            {
+                public void Dispose() { }
+            }
+
+            [GenerateDisposable]
+            public sealed partial class Owner : InterveningBase
+            {
+                [DisposeMember] private readonly IDisposable _resource = null!;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP016");
+        Assert.DoesNotContain("partial class Owner", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Explicit_intervening_base_Dispose_method_reports_DISP016_in_generated_hierarchy()
+    {
+        const string source = """
+            using System;
+            using DisposableGenerator;
+
+            [GenerateDisposable]
+            public partial class GeneratedBase { }
+
+            public class InterveningBase : GeneratedBase, IDisposable
+            {
+                void IDisposable.Dispose() { }
+            }
+
+            [GenerateDisposable]
+            public sealed partial class Owner : InterveningBase { }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP016");
+        Assert.DoesNotContain("partial class Owner", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accessible_non_generated_base_DisposeAsync_method_reports_DISP016()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public class FrameworkBase
+            {
+                public ValueTask DisposeAsync() => default;
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner : FrameworkBase { }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP016");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS0108");
+        Assert.DoesNotContain("partial class Owner", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Generic_base_Dispose_overload_does_not_report_DISP016()
     {
         const string source = """
@@ -788,6 +864,26 @@ public sealed class GeneratorDiagnosticTests
             }
 
             [GenerateDisposable]
+            public partial class Owner : FrameworkBase { }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP016");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void Generic_base_DisposeAsync_overload_does_not_report_DISP016()
+    {
+        const string source = """
+            using DisposableGenerator;
+            public class FrameworkBase
+            {
+                protected void DisposeAsync<T>() { }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
             public partial class Owner : FrameworkBase { }
             """;
 

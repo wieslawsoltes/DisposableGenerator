@@ -226,7 +226,12 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             return false;
         }
 
-        if (generateSynchronousDispose && !hasGeneratedBase && HasUnsupportedBaseDisposeHook(type, compilation))
+        if (HasUnsupportedBaseDisposalMember(
+                type,
+                generatedBase,
+                generateSynchronousDispose,
+                generateAsyncDispose,
+                compilation))
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 DiagnosticDescriptors.UnsupportedBaseDisposeHook,
@@ -599,27 +604,48 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static bool HasUnsupportedBaseDisposeHook(INamedTypeSymbol type, Compilation compilation)
+    private static bool HasUnsupportedBaseDisposalMember(
+        INamedTypeSymbol type,
+        INamedTypeSymbol? generatedBase,
+        bool generateSynchronousDispose,
+        bool generateAsyncDispose,
+        Compilation compilation)
     {
         for (var current = type.BaseType; current is not null && current.SpecialType != SpecialType.System_Object; current = current.BaseType)
         {
-            foreach (var method in current.GetMembers("Dispose").OfType<IMethodSymbol>())
+            if (generatedBase is not null &&
+                SymbolEqualityComparer.Default.Equals(current.OriginalDefinition, generatedBase.OriginalDefinition))
             {
-                if (!method.IsStatic &&
-                    method.Arity == 0 &&
-                    (method.Parameters.Length == 0 ||
-                     (method.Parameters.Length == 1 &&
-                      method.Parameters[0].RefKind == RefKind.None &&
-                      method.Parameters[0].Type.SpecialType == SpecialType.System_Boolean)) &&
-                    compilation.IsSymbolAccessibleWithin(method, type))
-                {
-                    return true;
-                }
+                break;
+            }
+
+            var methods = current.GetMembers().OfType<IMethodSymbol>();
+            if (generateSynchronousDispose && methods.Any(method =>
+                    !method.IsStatic &&
+                    IsSynchronousDisposeMethod(method) &&
+                    IsRelevantBaseDisposalMethod(method, type, compilation)))
+            {
+                return true;
+            }
+
+            if (generateAsyncDispose && methods.Any(method =>
+                    !method.IsStatic &&
+                    IsAsynchronousDisposeMethod(method) &&
+                    IsRelevantBaseDisposalMethod(method, type, compilation)))
+            {
+                return true;
             }
         }
 
         return false;
     }
+
+    private static bool IsRelevantBaseDisposalMethod(
+        IMethodSymbol method,
+        INamedTypeSymbol type,
+        Compilation compilation) =>
+        method.ExplicitInterfaceImplementations.Length > 0 ||
+        compilation.IsSymbolAccessibleWithin(method, type);
 
     private static bool ReportGeneratedMemberCollisions(
         SourceProductionContext context,

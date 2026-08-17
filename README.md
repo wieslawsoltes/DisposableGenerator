@@ -214,7 +214,7 @@ Invalid settings report `DISP009` and use the documented fallback.
 | `DISP013` | Warning | `[BorrowedMember]` is used outside a `[GenerateDisposable]` type. |
 | `DISP014` | Warning | A borrowed target is not a readable instance `IDisposable` or `IAsyncDisposable` member. |
 | `DISP015` | Error | A disposal hook does not use the supported implementation-only partial signature. |
-| `DISP016` | Error | A non-generated base exposes an accessible `Dispose()` or `Dispose(bool)` member. |
+| `DISP016` | Error | A non-generated base provides `Dispose()`, `Dispose(bool)`, `DisposeAsync()`, or `DisposeAsyncCore()`. |
 | `DISP017` | Error | A handwritten finalizer conflicts with generator-owned finalization. |
 | `DISP018` | Info | A mutable owned member can leak a resource when its value is replaced. |
 | `DISP019` | Error | Async generation was requested where `IAsyncDisposable` is unavailable. |
