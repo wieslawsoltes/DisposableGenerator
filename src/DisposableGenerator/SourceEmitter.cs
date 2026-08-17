@@ -972,35 +972,37 @@ internal static class SourceEmitter
         int indent,
         DisposableTypeModel model)
     {
-        if (model.Members.Any(member =>
+        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: false, byReference: false);
+        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: false, byReference: true);
+        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: true, byReference: false);
+        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: true, byReference: true);
+    }
+
+    private static void EmitConstrainedSynchronousHelper(
+        StringBuilder builder,
+        int indent,
+        DisposableTypeModel model,
+        bool allowsRefLike,
+        bool byReference)
+    {
+        if (!model.Members.Any(member =>
                 member.RequiresConstrainedDisposalDispatch &&
                 member.SupportsSynchronousDispose &&
-                !CanDisposeByReference(member)))
+                member.AllowsRefLikeDisposalDispatch == allowsRefLike &&
+                CanDisposeByReference(member) == byReference))
         {
-            Line(builder, indent, "static void __DisposeConstrained<TDisposable>(TDisposable disposable)");
-            Line(builder, indent + 1, "where TDisposable : global::System.IDisposable, allows ref struct");
-            Line(builder, indent, "{");
-            Line(builder, indent + 1, "if (disposable is not null)");
-            Line(builder, indent + 1, "{");
-            Line(builder, indent + 2, "disposable.Dispose();");
-            Line(builder, indent + 1, "}");
-            Line(builder, indent, "}");
+            return;
         }
 
-        if (model.Members.Any(member =>
-                member.RequiresConstrainedDisposalDispatch &&
-                member.SupportsSynchronousDispose &&
-                CanDisposeByReference(member)))
-        {
-            Line(builder, indent, "static void __DisposeConstrainedByRef<TDisposable>(ref TDisposable disposable)");
-            Line(builder, indent + 1, "where TDisposable : global::System.IDisposable, allows ref struct");
-            Line(builder, indent, "{");
-            Line(builder, indent + 1, "if (disposable is not null)");
-            Line(builder, indent + 1, "{");
-            Line(builder, indent + 2, "disposable.Dispose();");
-            Line(builder, indent + 1, "}");
-            Line(builder, indent, "}");
-        }
+        var helperName = ConstrainedHelperName(allowsRefLike, byReference, asynchronous: false);
+        Line(builder, indent, "static void " + helperName + "<TDisposable>(" + (byReference ? "ref " : string.Empty) + "TDisposable disposable)");
+        Line(builder, indent + 1, "where TDisposable : global::System.IDisposable" + (allowsRefLike ? ", allows ref struct" : string.Empty));
+        Line(builder, indent, "{");
+        Line(builder, indent + 1, "if (disposable is not null)");
+        Line(builder, indent + 1, "{");
+        Line(builder, indent + 2, "disposable.Dispose();");
+        Line(builder, indent + 1, "}");
+        Line(builder, indent, "}");
     }
 
     private static void EmitConstrainedAsynchronousHelpers(
@@ -1008,36 +1010,53 @@ internal static class SourceEmitter
         int indent,
         DisposableTypeModel model)
     {
-        if (model.Members.Any(member =>
+        EmitConstrainedAsynchronousHelper(builder, indent, model, allowsRefLike: false, byReference: false);
+        EmitConstrainedAsynchronousHelper(builder, indent, model, allowsRefLike: false, byReference: true);
+        EmitConstrainedAsynchronousHelper(builder, indent, model, allowsRefLike: true, byReference: false);
+        EmitConstrainedAsynchronousHelper(builder, indent, model, allowsRefLike: true, byReference: true);
+    }
+
+    private static void EmitConstrainedAsynchronousHelper(
+        StringBuilder builder,
+        int indent,
+        DisposableTypeModel model,
+        bool allowsRefLike,
+        bool byReference)
+    {
+        if (!model.Members.Any(member =>
                 member.RequiresConstrainedDisposalDispatch &&
                 member.SupportsAsynchronousDispose &&
-                !CanDisposeByReference(member)))
+                member.AllowsRefLikeDisposalDispatch == allowsRefLike &&
+                CanDisposeByReference(member) == byReference))
         {
-            Line(builder, indent, "static global::System.Threading.Tasks.ValueTask __DisposeConstrainedAsync<TDisposable>(TDisposable disposable)");
-            Line(builder, indent + 1, "where TDisposable : global::System.IAsyncDisposable, allows ref struct");
-            Line(builder, indent + 1, "=> disposable is null ? default : disposable.DisposeAsync();");
+            return;
         }
 
-        if (model.Members.Any(member =>
-                member.RequiresConstrainedDisposalDispatch &&
-                member.SupportsAsynchronousDispose &&
-                CanDisposeByReference(member)))
-        {
-            Line(builder, indent, "static global::System.Threading.Tasks.ValueTask __DisposeConstrainedByRefAsync<TDisposable>(ref TDisposable disposable)");
-            Line(builder, indent + 1, "where TDisposable : global::System.IAsyncDisposable, allows ref struct");
-            Line(builder, indent + 1, "=> disposable is null ? default : disposable.DisposeAsync();");
-        }
+        var helperName = ConstrainedHelperName(allowsRefLike, byReference, asynchronous: true);
+        Line(builder, indent, "static global::System.Threading.Tasks.ValueTask " + helperName + "<TDisposable>(" + (byReference ? "ref " : string.Empty) + "TDisposable disposable)");
+        Line(builder, indent + 1, "where TDisposable : global::System.IAsyncDisposable" + (allowsRefLike ? ", allows ref struct" : string.Empty));
+        Line(builder, indent + 1, "=> disposable is null ? default : disposable.DisposeAsync();");
     }
 
     private static string ConstrainedSynchronousDisposal(OwnedMemberModel member, string memberAccess) =>
-        CanDisposeByReference(member)
-            ? "__DisposeConstrainedByRef(ref " + memberAccess + ");"
-            : "__DisposeConstrained(" + memberAccess + ");";
+        ConstrainedHelperName(
+            member.AllowsRefLikeDisposalDispatch,
+            CanDisposeByReference(member),
+            asynchronous: false) +
+        "(" + (CanDisposeByReference(member) ? "ref " : string.Empty) + memberAccess + ");";
 
     private static string ConstrainedAsynchronousDisposal(OwnedMemberModel member, string memberAccess) =>
-        CanDisposeByReference(member)
-            ? "__DisposeConstrainedByRefAsync(ref " + memberAccess + ")"
-            : "__DisposeConstrainedAsync(" + memberAccess + ")";
+        ConstrainedHelperName(
+            member.AllowsRefLikeDisposalDispatch,
+            CanDisposeByReference(member),
+            asynchronous: true) +
+        "(" + (CanDisposeByReference(member) ? "ref " : string.Empty) + memberAccess + ")";
+
+    private static string ConstrainedHelperName(bool allowsRefLike, bool byReference, bool asynchronous) =>
+        "__Dispose" +
+        (allowsRefLike ? "RefLikeConstrained" : "Constrained") +
+        (byReference ? "ByRef" : string.Empty) +
+        (asynchronous ? "Async" : string.Empty);
 
     private static bool CanDisposeByReference(OwnedMemberModel member) =>
         member.Symbol is IFieldSymbol { IsReadOnly: false } ||

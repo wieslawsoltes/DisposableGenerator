@@ -13,10 +13,11 @@ internal static class GeneratorTestHarness
         IReadOnlyDictionary<string, string>? properties = null,
         bool requirePublicDocumentation = false,
         IEnumerable<MetadataReference>? additionalReferences = null,
-        IEnumerable<MetadataReference>? platformReferences = null)
+        IEnumerable<MetadataReference>? platformReferences = null,
+        LanguageVersion languageVersion = LanguageVersion.Preview)
     {
         var parseOptions = CSharpParseOptions.Default
-            .WithLanguageVersion(LanguageVersion.Preview)
+            .WithLanguageVersion(languageVersion)
             .WithDocumentationMode(requirePublicDocumentation ? DocumentationMode.Diagnose : DocumentationMode.Parse);
         var syntaxTree = CSharpSyntaxTree.ParseText(source, parseOptions, path: "Test0.cs");
         var specificDiagnostics = requirePublicDocumentation

@@ -47,6 +47,28 @@ internal static class SymbolHelpers
         return type.IsValueType;
     }
 
+    internal static bool AllowsRefLikeDisposalDispatch(this ITypeSymbol type)
+    {
+        if (type.IsRefLikeType)
+        {
+            return true;
+        }
+
+        if (type is not ITypeParameterSymbol typeParameter ||
+            typeParameter.ContainingSymbol is not INamedTypeSymbol containingType)
+        {
+            return false;
+        }
+
+        return containingType.DeclaringSyntaxReferences.Any(reference =>
+            reference.GetSyntax() is TypeDeclarationSyntax declaration &&
+            declaration.ConstraintClauses.Any(clause =>
+                clause.Name.Identifier.ValueText == typeParameter.Name &&
+                clause.Constraints.Any(constraint =>
+                    constraint.DescendantTokens().Select(token => token.ValueText).SequenceEqual(
+                        new[] { "allows", "ref", "struct" }))));
+    }
+
     internal static bool IsDisposable(
         this ITypeSymbol type,
         Func<INamedTypeSymbol, bool>? generationAvailable = null)

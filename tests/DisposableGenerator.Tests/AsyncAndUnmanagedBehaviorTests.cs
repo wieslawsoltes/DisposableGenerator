@@ -1,4 +1,5 @@
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace DisposableGenerator.Tests;
 
@@ -38,7 +39,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-        Assert.Contains("__DisposeConstrained(this.Resource);", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("__DisposeRefLikeConstrained(this.Resource);", result.GeneratedSource, StringComparison.Ordinal);
         var value = (string)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.Equal("disposed", value);
     }
@@ -82,7 +83,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-        Assert.Contains("await __DisposeConstrainedAsync(this.Resource).ConfigureAwait(false);", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("await __DisposeRefLikeConstrainedAsync(this.Resource).ConfigureAwait(false);", result.GeneratedSource, StringComparison.Ordinal);
         var task = (Task<string>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.Equal("disposed-async", await task);
     }
@@ -122,7 +123,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
         Assert.Contains("where TDisposable : global::System.IDisposable, allows ref struct", result.GeneratedSource, StringComparison.Ordinal);
-        Assert.Contains("__DisposeConstrained(this.Resource);", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("__DisposeRefLikeConstrained(this.Resource);", result.GeneratedSource, StringComparison.Ordinal);
         var value = (string)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.Equal("disposed-explicitly", value);
 
@@ -134,7 +135,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
             });
 
         Assert.DoesNotContain(aggregateResult.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-        Assert.Contains("__DisposeConstrained(this.Resource);", aggregateResult.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("__DisposeRefLikeConstrained(this.Resource);", aggregateResult.GeneratedSource, StringComparison.Ordinal);
         var aggregateValue = (string)aggregateResult.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.Equal("disposed-explicitly", aggregateValue);
     }
@@ -179,7 +180,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
         Assert.Contains("where TDisposable : global::System.IAsyncDisposable, allows ref struct", result.GeneratedSource, StringComparison.Ordinal);
-        Assert.Contains("await __DisposeConstrainedAsync(this.Resource).ConfigureAwait(false);", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("await __DisposeRefLikeConstrainedAsync(this.Resource).ConfigureAwait(false);", result.GeneratedSource, StringComparison.Ordinal);
         var task = (Task<string>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.Equal("disposed-explicitly-async", await task);
     }
@@ -220,6 +221,48 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("__DisposeRefLikeConstrained(this.Resource);", result.GeneratedSource, StringComparison.Ordinal);
+        var value = (int)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal(1, value);
+    }
+
+    [Fact]
+    public void Ordinary_disposable_type_parameter_uses_CSharp12_compatible_constrained_dispatch()
+    {
+        const string source = """
+            using System;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static int Run()
+                {
+                    Resource.DisposeCount = 0;
+                    new Owner<Resource>().Dispose();
+                    return Resource.DisposeCount;
+                }
+            }
+
+            [GenerateDisposable]
+            public sealed partial class Owner<T>
+                where T : IDisposable
+            {
+                [DisposeMember]
+                public T Resource => default!;
+            }
+
+            public struct Resource : IDisposable
+            {
+                public static int DisposeCount;
+
+                void IDisposable.Dispose() => DisposeCount++;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.DoesNotContain("allows ref struct", result.GeneratedSource, StringComparison.Ordinal);
         Assert.Contains("__DisposeConstrained(this.Resource);", result.GeneratedSource, StringComparison.Ordinal);
         var value = (int)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.Equal(1, value);
@@ -266,7 +309,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-        Assert.Contains("await __DisposeConstrainedAsync(this.Resource).ConfigureAwait(false);", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("await __DisposeRefLikeConstrainedAsync(this.Resource).ConfigureAwait(false);", result.GeneratedSource, StringComparison.Ordinal);
         var task = (Task<int>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.Equal(1, await task);
     }
@@ -303,9 +346,10 @@ public sealed class AsyncAndUnmanagedBehaviorTests
             }
             """;
 
-        var result = GeneratorTestHarness.Run(source);
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.DoesNotContain("allows ref struct", result.GeneratedSource, StringComparison.Ordinal);
         Assert.Contains("__DisposeConstrainedByRef(ref this.Resource);", result.GeneratedSource, StringComparison.Ordinal);
         var value = (bool)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.True(value);

@@ -528,7 +528,8 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                         GetMemberOrder(member),
                         supportsSynchronousDispose,
                         supportsAsynchronousDispose,
-                        memberType.RequiresConstrainedDisposalDispatch()));
+                        memberType.RequiresConstrainedDisposalDispatch(),
+                        memberType.AllowsRefLikeDisposalDispatch()));
                 }
             }
         }
