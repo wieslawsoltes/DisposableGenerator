@@ -418,6 +418,91 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
+    public void Mutable_nullable_struct_field_preserves_sync_disposal_mutation()
+    {
+        const string source = """
+            using System;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static bool Run()
+                {
+                    var owner = new Owner();
+                    owner.Dispose();
+                    return owner.Resource!.Value.Disposed;
+                }
+            }
+
+            [GenerateDisposable]
+            public sealed partial class Owner
+            {
+                [DisposeMember]
+                public Resource? Resource = new Resource();
+            }
+
+            public struct Resource : IDisposable
+            {
+                public bool Disposed { get; private set; }
+
+                void IDisposable.Dispose() => Disposed = true;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("this.Resource = __nullableMember0", result.GeneratedSource, StringComparison.Ordinal);
+        var value = (bool)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.True(value);
+    }
+
+    [Fact]
+    public async Task Mutable_nullable_struct_field_preserves_async_disposal_mutation()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<bool> Run()
+                {
+                    var owner = new Owner();
+                    await owner.DisposeAsync();
+                    return owner.Resource!.Value.Disposed;
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner
+            {
+                [DisposeMember]
+                public Resource? Resource = new Resource();
+            }
+
+            public struct Resource : IAsyncDisposable
+            {
+                public bool Disposed { get; private set; }
+
+                ValueTask IAsyncDisposable.DisposeAsync()
+                {
+                    Disposed = true;
+                    return default;
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("this.Resource = __nullableMember0", result.GeneratedSource, StringComparison.Ordinal);
+        var task = (Task<bool>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.True(await task);
+    }
+
+    [Fact]
     public async Task AsyncOnlyOwnerDisposesMembersRegistrationsAndHooksInOrder()
     {
         const string source = """

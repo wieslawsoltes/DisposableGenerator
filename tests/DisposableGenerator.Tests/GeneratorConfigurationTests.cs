@@ -361,4 +361,53 @@ public sealed class GeneratorConfigurationTests
         var actual = (string)assembly.GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.Equal("derived,base|2", actual);
     }
+
+    [Theory]
+    [InlineData("StopOnFirst", "ContinueAndAggregate", 0, false)]
+    [InlineData("ContinueAndAggregate", "StopOnFirst", 1, true)]
+    public void Compiled_generated_base_exception_policy_is_preserved_across_derived_compilation(
+        string baseBehavior,
+        string derivedBehavior,
+        int encodedBehavior,
+        bool expectsAggregateCleanup)
+    {
+        const string baseSource = """
+            using DisposableGenerator;
+
+            [GenerateDisposable]
+            public partial class ExternalBase { }
+            """;
+        var baseResult = GeneratorTestHarness.Run(
+            baseSource,
+            new Dictionary<string, string>
+            {
+                ["DisposableGenerator_DisposalExceptionBehavior"] = baseBehavior,
+            });
+        var baseReference = baseResult.EmitToReference();
+
+        const string derivedSource = """
+            using DisposableGenerator;
+
+            [GenerateDisposable]
+            public sealed partial class Owner : ExternalBase { }
+            """;
+        var result = GeneratorTestHarness.Run(
+            derivedSource,
+            new Dictionary<string, string>
+            {
+                ["DisposableGenerator_DisposalExceptionBehavior"] = derivedBehavior,
+            },
+            additionalReferences: [baseReference]);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains(
+            "GeneratedDisposableAttribute(DisposalExceptionBehavior = " + encodedBehavior + ")",
+            result.GeneratedSource,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            expectsAggregateCleanup,
+            result.GeneratedSource.Contains(
+                "List<global::System.Exception>? __exceptions",
+                StringComparison.Ordinal));
+    }
 }

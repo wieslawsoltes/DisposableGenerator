@@ -31,7 +31,11 @@ internal static class SourceEmitter
         }
 
         var interfaceClause = model.HasGeneratedBase ? string.Empty : InterfaceClause(model);
-        Line(builder, indent, "[global::DisposableGenerator.GeneratedDisposableAttribute]");
+        Line(
+            builder,
+            indent,
+            "[global::DisposableGenerator.GeneratedDisposableAttribute(DisposalExceptionBehavior = " +
+            (int)model.DisposalExceptionBehavior + ")]");
         Line(builder, indent, SymbolHelpers.PartialDeclarationPrefix(model.Type) + " " + SymbolHelpers.TypeDeclarationName(model.Type) + interfaceClause);
         Line(builder, indent, "{");
         indent++;
@@ -174,7 +178,7 @@ internal static class SourceEmitter
         Line(builder, indent + 1, "{");
         EmitBeginDisposal(builder, indent + 2, model.Options.GenerateRegistrationMethod);
         if (model.GenerateSynchronousDispose &&
-            model.Options.DisposalExceptionBehavior == DisposalExceptionBehavior.ContinueAndAggregate)
+            model.DisposalExceptionBehavior == DisposalExceptionBehavior.ContinueAndAggregate)
         {
             Line(builder, indent + 2, "global::System.Collections.Generic.List<global::System.Exception>? __exceptions = null;");
             EmitAggregateAction(builder, indent + 2, "await DisposeAsyncCore().ConfigureAwait(false);", "__exceptions");
@@ -328,7 +332,7 @@ internal static class SourceEmitter
 
     private static void EmitDisposeBoolean(StringBuilder builder, int indent, DisposableTypeModel model)
     {
-        if (model.Options.DisposalExceptionBehavior == DisposalExceptionBehavior.ContinueAndAggregate)
+        if (model.DisposalExceptionBehavior == DisposalExceptionBehavior.ContinueAndAggregate)
         {
             EmitAggregateDisposeBoolean(builder, indent, model);
             return;
@@ -481,7 +485,9 @@ internal static class SourceEmitter
             Line(
                 builder,
                 indent,
-                ownedMember.RequiresConstrainedDisposalDispatch
+                ownedMember.IsNullableValueType && CanDisposeByReference(ownedMember)
+                    ? NullableSynchronousDisposal(memberAccess, index)
+                    : ownedMember.RequiresConstrainedDisposalDispatch
                     ? ConstrainedSynchronousDisposal(ownedMember, memberAccess)
                     : "((global::System.IDisposable?)" + memberAccess + ")?.Dispose();");
         }
@@ -641,8 +647,9 @@ internal static class SourceEmitter
 
         EmitConstrainedSynchronousHelpers(builder, indent, model);
 
-        foreach (var ownedMember in model.Members)
+        for (var memberIndex = 0; memberIndex < model.Members.Count; memberIndex++)
         {
+            var ownedMember = model.Members[memberIndex];
             if (!ownedMember.SupportsSynchronousDispose)
             {
                 continue;
@@ -652,7 +659,9 @@ internal static class SourceEmitter
             EmitAggregateAction(
                 builder,
                 indent,
-                ownedMember.RequiresConstrainedDisposalDispatch
+                ownedMember.IsNullableValueType && CanDisposeByReference(ownedMember)
+                    ? NullableSynchronousDisposal("this." + memberName, memberIndex)
+                    : ownedMember.RequiresConstrainedDisposalDispatch
                     ? ConstrainedSynchronousDisposal(ownedMember, "this." + memberName)
                     : "((global::System.IDisposable?)this." + memberName + ")?.Dispose();",
                 "__exceptions");
@@ -760,7 +769,7 @@ internal static class SourceEmitter
 
     private static void EmitDisposeAsyncCore(StringBuilder builder, int indent, DisposableTypeModel model)
     {
-        if (model.Options.DisposalExceptionBehavior == DisposalExceptionBehavior.ContinueAndAggregate)
+        if (model.DisposalExceptionBehavior == DisposalExceptionBehavior.ContinueAndAggregate)
         {
             EmitAggregateDisposeAsyncCore(builder, indent, model);
             return;
@@ -911,7 +920,13 @@ internal static class SourceEmitter
         {
             var ownedMember = model.Members[memberIndex];
             var memberName = SymbolHelpers.EscapeIdentifier(ownedMember.Symbol.Name);
-            var statement = ownedMember.RequiresConstrainedDisposalDispatch && ownedMember.SupportsAsynchronousDispose
+            var statement = ownedMember.IsNullableValueType &&
+                CanDisposeByReference(ownedMember) &&
+                ownedMember.SupportsAsynchronousDispose
+                ? NullableAsynchronousDisposal("this." + memberName, memberIndex)
+                : ownedMember.IsNullableValueType && CanDisposeByReference(ownedMember)
+                    ? NullableSynchronousDisposal("this." + memberName, memberIndex)
+                : ownedMember.RequiresConstrainedDisposalDispatch && ownedMember.SupportsAsynchronousDispose
                 ? "await " + ConstrainedAsynchronousDisposal(ownedMember, "this." + memberName) + ".ConfigureAwait(false);"
                 : ownedMember.RequiresConstrainedDisposalDispatch
                     ? ConstrainedSynchronousDisposal(ownedMember, "this." + memberName)
@@ -986,10 +1001,15 @@ internal static class SourceEmitter
         bool byReference)
     {
         if (!model.Members.Any(member =>
-                member.RequiresConstrainedDisposalDispatch &&
-                member.SupportsSynchronousDispose &&
-                member.AllowsRefLikeDisposalDispatch == allowsRefLike &&
-                CanDisposeByReference(member) == byReference))
+                (member.RequiresConstrainedDisposalDispatch &&
+                 member.SupportsSynchronousDispose &&
+                 member.AllowsRefLikeDisposalDispatch == allowsRefLike &&
+                 CanDisposeByReference(member) == byReference) ||
+                (!allowsRefLike &&
+                 byReference &&
+                 member.IsNullableValueType &&
+                 member.SupportsSynchronousDispose &&
+                 CanDisposeByReference(member))))
         {
             return;
         }
@@ -1024,10 +1044,15 @@ internal static class SourceEmitter
         bool byReference)
     {
         if (!model.Members.Any(member =>
-                member.RequiresConstrainedDisposalDispatch &&
-                member.SupportsAsynchronousDispose &&
-                member.AllowsRefLikeDisposalDispatch == allowsRefLike &&
-                CanDisposeByReference(member) == byReference))
+                (member.RequiresConstrainedDisposalDispatch &&
+                 member.SupportsAsynchronousDispose &&
+                 member.AllowsRefLikeDisposalDispatch == allowsRefLike &&
+                 CanDisposeByReference(member) == byReference) ||
+                (!allowsRefLike &&
+                 byReference &&
+                 member.IsNullableValueType &&
+                 member.SupportsAsynchronousDispose &&
+                 CanDisposeByReference(member))))
         {
             return;
         }
@@ -1051,6 +1076,24 @@ internal static class SourceEmitter
             CanDisposeByReference(member),
             asynchronous: true) +
         "(" + (CanDisposeByReference(member) ? "ref " : string.Empty) + memberAccess + ")";
+
+    private static string NullableSynchronousDisposal(string memberAccess, int memberIndex)
+    {
+        var valueName = "__nullableMember" + memberIndex;
+        return "if (" + memberAccess + ".HasValue) { var " + valueName + " = " + memberAccess +
+            ".GetValueOrDefault(); try { " +
+            ConstrainedHelperName(allowsRefLike: false, byReference: true, asynchronous: false) +
+            "(ref " + valueName + "); } finally { " + memberAccess + " = " + valueName + "; } }";
+    }
+
+    private static string NullableAsynchronousDisposal(string memberAccess, int memberIndex)
+    {
+        var valueName = "__nullableMember" + memberIndex;
+        return "if (" + memberAccess + ".HasValue) { var " + valueName + " = " + memberAccess +
+            ".GetValueOrDefault(); try { await " +
+            ConstrainedHelperName(allowsRefLike: false, byReference: true, asynchronous: true) +
+            "(ref " + valueName + ").ConfigureAwait(false); } finally { " + memberAccess + " = " + valueName + "; } }";
+    }
 
     private static string ConstrainedHelperName(bool allowsRefLike, bool byReference, bool asynchronous) =>
         "__Dispose" +

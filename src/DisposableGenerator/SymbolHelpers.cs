@@ -47,6 +47,10 @@ internal static class SymbolHelpers
         return type.IsValueType;
     }
 
+    internal static bool IsNullableValueType(this ITypeSymbol type) =>
+        type is INamedTypeSymbol namedType &&
+        namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T;
+
     internal static bool AllowsRefLikeDisposalDispatch(this ITypeSymbol type)
     {
         if (type.IsRefLikeType)
@@ -177,6 +181,19 @@ internal static class SymbolHelpers
         foreach (var argument in attribute.NamedArguments)
         {
             if (argument.Key == name && argument.Value.Value is bool value)
+            {
+                return value;
+            }
+        }
+
+        return defaultValue;
+    }
+
+    internal static int GetNamedInt(this AttributeData attribute, string name, int defaultValue)
+    {
+        foreach (var argument in attribute.NamedArguments)
+        {
+            if (argument.Key == name && argument.Value.Value is int value)
             {
                 return value;
             }

@@ -34,6 +34,7 @@ namespace DisposableGenerator
     [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
     internal sealed class GeneratedDisposableAttribute : global::System.Attribute
     {
+        public int DisposalExceptionBehavior { get; set; }
     }
 
     [global::System.AttributeUsage(global::System.AttributeTargets.Field | global::System.AttributeTargets.Property, AllowMultiple = false, Inherited = false)]

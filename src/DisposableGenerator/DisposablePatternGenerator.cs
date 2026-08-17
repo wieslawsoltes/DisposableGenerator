@@ -116,6 +116,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             model.GenerateAsyncDispose,
             model.GenerateUnmanagedCleanup,
             model.GenerateFinalizer,
+            model.DisposalExceptionBehavior,
             model.Options);
         return new DisposableGenerationOutput(
             HintName(model.Type),
@@ -216,6 +217,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
 
         var generatedBase = FindGeneratedBase(type);
         var hasGeneratedBase = generatedBase is not null;
+        var disposalExceptionBehavior = options.DisposalExceptionBehavior;
         if (generatedBase is not null)
         {
             if (!generationAvailable(generatedBase))
@@ -232,6 +234,21 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                     type.BestLocation(),
                     type.ToDisplayString()));
                 return false;
+            }
+
+            if (generatedBase.DeclaringSyntaxReferences.Length == 0)
+            {
+                var generatedMarker = generatedBase.GetAttribute(SymbolHelpers.GeneratedDisposableAttributeName);
+                var encodedBehavior = generatedMarker?.GetNamedInt("DisposalExceptionBehavior", (int)DisposalExceptionBehavior.StopOnFirst)
+                    ?? (int)DisposalExceptionBehavior.StopOnFirst;
+                if (encodedBehavior == (int)DisposalExceptionBehavior.ContinueAndAggregate)
+                {
+                    disposalExceptionBehavior = DisposalExceptionBehavior.ContinueAndAggregate;
+                }
+                else
+                {
+                    disposalExceptionBehavior = DisposalExceptionBehavior.StopOnFirst;
+                }
             }
         }
 
@@ -288,6 +305,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             generateAsyncDispose,
             generateUnmanagedCleanup,
             generateFinalizer,
+            disposalExceptionBehavior,
             options);
         return true;
     }
@@ -529,7 +547,8 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                         supportsSynchronousDispose,
                         supportsAsynchronousDispose,
                         memberType.RequiresConstrainedDisposalDispatch(),
-                        memberType.AllowsRefLikeDisposalDispatch()));
+                        memberType.AllowsRefLikeDisposalDispatch(),
+                        memberType.IsNullableValueType()));
                 }
             }
         }

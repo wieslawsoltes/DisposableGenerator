@@ -85,6 +85,7 @@ internal sealed class DisposableTypeModel
         bool generateAsyncDispose,
         bool generateUnmanagedCleanup,
         bool generateFinalizer,
+        DisposalExceptionBehavior disposalExceptionBehavior,
         GeneratorOptions options)
     {
         Type = type;
@@ -94,6 +95,7 @@ internal sealed class DisposableTypeModel
         GenerateAsyncDispose = generateAsyncDispose;
         GenerateUnmanagedCleanup = generateUnmanagedCleanup;
         GenerateFinalizer = generateFinalizer;
+        DisposalExceptionBehavior = disposalExceptionBehavior;
         Options = options;
     }
 
@@ -111,6 +113,8 @@ internal sealed class DisposableTypeModel
 
     internal bool GenerateFinalizer { get; }
 
+    internal DisposalExceptionBehavior DisposalExceptionBehavior { get; }
+
     internal GeneratorOptions Options { get; }
 }
 
@@ -122,7 +126,8 @@ internal sealed class OwnedMemberModel
         bool supportsSynchronousDispose,
         bool supportsAsynchronousDispose,
         bool requiresConstrainedDisposalDispatch,
-        bool allowsRefLikeDisposalDispatch)
+        bool allowsRefLikeDisposalDispatch,
+        bool isNullableValueType)
     {
         Symbol = symbol;
         Order = order;
@@ -130,6 +135,7 @@ internal sealed class OwnedMemberModel
         SupportsAsynchronousDispose = supportsAsynchronousDispose;
         RequiresConstrainedDisposalDispatch = requiresConstrainedDisposalDispatch;
         AllowsRefLikeDisposalDispatch = allowsRefLikeDisposalDispatch;
+        IsNullableValueType = isNullableValueType;
     }
 
     internal ISymbol Symbol { get; }
@@ -143,4 +149,6 @@ internal sealed class OwnedMemberModel
     internal bool RequiresConstrainedDisposalDispatch { get; }
 
     internal bool AllowsRefLikeDisposalDispatch { get; }
+
+    internal bool IsNullableValueType { get; }
 }
