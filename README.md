@@ -232,7 +232,7 @@ Standard `.editorconfig`, `NoWarn`, and `#pragma warning` controls work for diag
 
 The generator supports synchronous, asynchronous, and conjunctive disposal, plus opt-in unmanaged cleanup and finalization. Safe handles remain strongly preferred over raw handles and handwritten release code. A class with a non-generated base that already implements `IDisposable` or `IAsyncDisposable` receives `DISP004` or `DISP023`; integrate with that base's documented disposal hook manually instead of creating a competing public contract.
 
-See [design rationale](docs/design-rationale.md), [configuration](docs/configuration.md), and the [migration guide](docs/migration.md).
+See [design rationale](docs/design-rationale.md), [configuration](docs/configuration.md), the [migration guide](docs/migration.md), and the [changelog](CHANGELOG.md).
 
 Coding agents working in this repository also discover the checked-in [`use-disposable-generator`](.agents/skills/use-disposable-generator/SKILL.md) skill. It provides an installation and consumption workflow, full option and diagnostic guidance, and the explicit owned-versus-borrowed decision process. Repository implementation requirements are authoritative in [`AGENTS.md`](AGENTS.md).
 
@@ -266,7 +266,7 @@ dotnet format DisposableGenerator.slnx --verify-no-changes --no-restore
 
 `eng/run-integration-tests.sh` restores standalone consumers from the packed local NuGet package in a fresh cache with all non-local package sources disabled. The default local run targets `net10.0`; pass `net8.0`, `net9.0`, or `net10.0` as the second argument to select a framework. The separate NuGet Integration workflow runs the full 3 operating system × 3 framework matrix on every branch push and pull request, and the release workflow cannot publish until that reusable integration workflow succeeds. See [the package integration matrix](tests/PackageIntegration/README.md) for coverage and commands.
 
-Tags named `vMAJOR.MINOR.PATCH` run the release workflow, verify that exact package version, publish it to NuGet using the `NUGET_API_KEY` repository secret, and create a GitHub release containing the `.nupkg` file.
+Tags named `vMAJOR.MINOR.PATCH` run the release workflow. A tag must point to a commit contained in `main`, and its version must match `VersionPrefix` in `Directory.Build.props`. The workflow verifies that exact package version, publishes it to NuGet using the `NUGET_API_KEY` repository secret, and creates a GitHub release containing the `.nupkg` file. See the [release process](docs/releasing.md) for the complete checklist.
 
 ## License
 

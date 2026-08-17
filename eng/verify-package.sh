@@ -23,6 +23,7 @@ for required_entry in \
     "analyzers/dotnet/cs/DisposableGenerator.dll" \
     "buildTransitive/DisposableGenerator.props" \
     "README.md" \
+    "CHANGELOG.md" \
     "LICENSE"; do
     if ! grep -Fxq "${required_entry}" <<<"${package_entries}"; then
         echo "Package is missing ${required_entry}" >&2
@@ -36,6 +37,21 @@ if grep -Eq '^(lib|ref|runtimes)/' <<<"${package_entries}"; then
 fi
 
 package_spec="$(unzip -p "${package_path}" '*.nuspec')"
+if ! grep -Fq "<version>${package_version}</version>" <<<"${package_spec}"; then
+    echo "Package manifest version does not match ${package_version}." >&2
+    exit 1
+fi
+
+if ! grep -Fq '<projectUrl>https://github.com/wieslawsoltes/DisposableGenerator</projectUrl>' <<<"${package_spec}"; then
+    echo "Package manifest is missing the project URL." >&2
+    exit 1
+fi
+
+if ! grep -Fq "<releaseNotes>https://github.com/wieslawsoltes/DisposableGenerator/blob/v${package_version}/CHANGELOG.md</releaseNotes>" <<<"${package_spec}"; then
+    echo "Package manifest release notes do not match ${package_version}." >&2
+    exit 1
+fi
+
 if grep -q '<dependency ' <<<"${package_spec}"; then
     echo "Compile-time-only package exposes a NuGet dependency to consumers." >&2
     exit 1
@@ -56,4 +72,4 @@ dotnet run --project "${smoke_directory}/PackageSmoke.csproj" \
     --no-restore \
     -p:DisposableGeneratorPackageVersion="${package_version}"
 
-echo "Verified DisposableGenerator ${package_version} analyzer-only contents, build assets, generated API, and runtime behavior."
+echo "Verified DisposableGenerator ${package_version} metadata, analyzer-only contents, build assets, generated API, and runtime behavior."
