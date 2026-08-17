@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DisposableGenerator/DisposableGenerator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DisposableGenerator.Tests/DisposableGenerator.Tests.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/DisposableGenerator.AvaloniaReactiveUI.Sample/DisposableGenerator.AvaloniaReactiveUI.Sample.csproj" />
+    <Project Path="samples/DisposableGenerator.Sample/DisposableGenerator.Sample.csproj" />
+  </Folder>
+</Solution>

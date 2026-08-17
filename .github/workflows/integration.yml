@@ -1,0 +1,66 @@
+name: NuGet Integration
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nuget-integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Build packed analyzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore DisposableGenerator.slnx
+      - run: dotnet build DisposableGenerator.slnx --configuration Release --no-restore
+      - run: dotnet pack src/DisposableGenerator/DisposableGenerator.csproj --configuration Release --no-build --output artifacts/packages
+      - run: ./eng/verify-package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: integration-nuget-package
+          path: |
+            artifacts/packages/DisposableGenerator.*.nupkg
+            !artifacts/packages/*.symbols.nupkg
+          if-no-files-found: error
+
+  consumers:
+    name: Consumers (${{ matrix.os }}, ${{ matrix.target.tfm }})
+    needs: package
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        target:
+          - tfm: net8.0
+            sdk: 8.0.x
+          - tfm: net9.0
+            sdk: 9.0.x
+          - tfm: net10.0
+            sdk: 10.0.x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ matrix.target.sdk }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: integration-nuget-package
+          path: artifacts/packages
+      - name: Run isolated package consumers
+        shell: bash
+        run: |
+          package_path="$(find artifacts/packages -maxdepth 1 -name 'DisposableGenerator.*.nupkg' ! -name '*.symbols.nupkg' -print -quit)"
+          ./eng/run-integration-tests.sh "${package_path}" "${{ matrix.target.tfm }}"

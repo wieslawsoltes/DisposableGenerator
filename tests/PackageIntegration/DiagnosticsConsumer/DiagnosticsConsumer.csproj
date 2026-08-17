@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework Condition="'$(IntegrationTargetFramework)' == ''">net10.0</TargetFramework>
+    <TargetFramework Condition="'$(IntegrationTargetFramework)' != ''">$(IntegrationTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <LangVersion>latest</LangVersion>
+    <DisposableGenerator_MemberDisposalOrder>Sideways</DisposableGenerator_MemberDisposalOrder>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="DisposableGenerator" Version="$(DisposableGeneratorPackageVersion)" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

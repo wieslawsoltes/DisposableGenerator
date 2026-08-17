@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <DisposableGenerator_RegistrationMethodName>Own</DisposableGenerator_RegistrationMethodName>
+    <DisposableGenerator_AsyncRegistrationMethodName>OwnAsync</DisposableGenerator_AsyncRegistrationMethodName>
+    <DisposableGenerator_PostDisposeRegistrationBehavior>DisposeImmediately</DisposableGenerator_PostDisposeRegistrationBehavior>
+    <DisposableGenerator_MemberDisposalOrder>Declaration</DisposableGenerator_MemberDisposalOrder>
+    <DisposableGenerator_RegisteredResourceDisposalOrder>Registration</DisposableGenerator_RegisteredResourceDisposalOrder>
+    <DisposableGenerator_DisposalExceptionBehavior>ContinueAndAggregate</DisposableGenerator_DisposalExceptionBehavior>
+    <DisposableGenerator_GenerateDisposalHooks>false</DisposableGenerator_GenerateDisposalHooks>
+    <DisposableGenerator_ReportUnownedDisposableFields>false</DisposableGenerator_ReportUnownedDisposableFields>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="DisposableGenerator" Version="$(DisposableGeneratorPackageVersion)" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

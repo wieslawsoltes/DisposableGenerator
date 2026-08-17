@@ -1,0 +1,50 @@
+<rxui:ReactiveWindow
+    x:Class="DisposableGenerator.AvaloniaReactiveUI.Sample.Views.MainWindow"
+    x:TypeArguments="vm:WorkspaceViewModel"
+    x:DataType="vm:WorkspaceViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:rxui="using:ReactiveUI.Avalonia"
+    xmlns:vm="using:DisposableGenerator.AvaloniaReactiveUI.Sample.ViewModels"
+    Width="900"
+    Height="540"
+    MinWidth="720"
+    MinHeight="420"
+    Title="DisposableGenerator · Avalonia · ReactiveUI 24">
+  <Grid Margin="24" RowDefinitions="Auto,Auto,*" RowSpacing="16">
+    <StackPanel Spacing="4">
+      <TextBlock FontSize="26" FontWeight="SemiBold" Text="Generated reactive and disposable view models" />
+      <TextBlock Opacity="0.72" Text="{Binding DisposalExplanation}" TextWrapping="Wrap" />
+      <TextBlock FontWeight="Medium" Text="{Binding SelectedSection}" />
+    </StackPanel>
+
+    <Border Grid.Row="1" Padding="12" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+      <TextBlock Text="ReactiveUI.SourceGenerators creates the bound properties and commands. DisposableGenerator creates the ownership chain." TextWrapping="Wrap" />
+    </Border>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="16">
+      <Border Padding="18" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+        <StackPanel Spacing="10">
+          <TextBlock FontSize="20" FontWeight="SemiBold" Text="EditorViewModel" />
+          <TextBlock Text="Sealed leaf → DocumentViewModelBase → ViewModelBase → ReactiveObject" TextWrapping="Wrap" />
+          <TextBox PlaceholderText="Document title" Text="{Binding Editor.Title}" />
+          <TextBox AcceptsReturn="True" Height="130" Text="{Binding Editor.Text}" TextWrapping="Wrap" />
+          <Button Command="{Binding Editor.SaveCommand}" Content="Save generated command" HorizontalAlignment="Left" />
+          <TextBlock Text="{Binding Editor.Status}" />
+        </StackPanel>
+      </Border>
+
+      <Border Grid.Column="1" Padding="18" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+        <StackPanel Spacing="10">
+          <TextBlock FontSize="20" FontWeight="SemiBold" Text="PreviewViewModel" />
+          <TextBlock Text="A second sealed leaf using the same generated inheritance contract." TextWrapping="Wrap" />
+          <TextBox Text="{Binding Preview.Title}" />
+          <Slider Minimum="50" Maximum="200" Value="{Binding Preview.ZoomPercent}" />
+          <TextBlock Text="{Binding Preview.ZoomPercent, StringFormat='Zoom: {0}%'}" />
+          <Button Command="{Binding Preview.ToggleLiveCommand}" Content="Toggle generated command" HorizontalAlignment="Left" />
+          <CheckBox IsChecked="{Binding Preview.IsLive}" Content="Live preview" />
+        </StackPanel>
+      </Border>
+    </Grid>
+  </Grid>
+</rxui:ReactiveWindow>
