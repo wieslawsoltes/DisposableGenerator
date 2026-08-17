@@ -4,7 +4,7 @@ using Microsoft.CodeAnalysis;
 
 namespace DisposableGenerator;
 
-internal sealed class DisposableGenerationOutput
+internal sealed class DisposableGenerationOutput : System.IEquatable<DisposableGenerationOutput>
 {
     internal DisposableGenerationOutput(
         string? hintName,
@@ -21,6 +21,58 @@ internal sealed class DisposableGenerationOutput
     internal string? Source { get; }
 
     internal ImmutableArray<Diagnostic> Diagnostics { get; }
+
+    public bool Equals(DisposableGenerationOutput? other)
+    {
+        if (other is null ||
+            !string.Equals(HintName, other.HintName, System.StringComparison.Ordinal) ||
+            !string.Equals(Source, other.Source, System.StringComparison.Ordinal) ||
+            Diagnostics.Length != other.Diagnostics.Length)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < Diagnostics.Length; index++)
+        {
+            if (!DiagnosticEquals(Diagnostics[index], other.Diagnostics[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public override bool Equals(object? obj) => Equals(obj as DisposableGenerationOutput);
+
+    public override int GetHashCode()
+    {
+        unchecked
+        {
+            var hash = HintName is null ? 0 : System.StringComparer.Ordinal.GetHashCode(HintName);
+            hash = (hash * 397) ^ (Source is null ? 0 : System.StringComparer.Ordinal.GetHashCode(Source));
+            foreach (var diagnostic in Diagnostics)
+            {
+                hash = (hash * 397) ^ System.StringComparer.Ordinal.GetHashCode(diagnostic.Id);
+                hash = (hash * 397) ^ (int)diagnostic.Severity;
+                hash = (hash * 397) ^ System.StringComparer.Ordinal.GetHashCode(diagnostic.GetMessage());
+                hash = (hash * 397) ^ diagnostic.Location.SourceSpan.GetHashCode();
+                hash = (hash * 397) ^ System.StringComparer.Ordinal.GetHashCode(diagnostic.Location.GetLineSpan().Path ?? string.Empty);
+            }
+
+            return hash;
+        }
+    }
+
+    private static bool DiagnosticEquals(Diagnostic left, Diagnostic right) =>
+        left.Id == right.Id &&
+        left.Severity == right.Severity &&
+        left.GetMessage() == right.GetMessage() &&
+        left.Location.SourceSpan.Equals(right.Location.SourceSpan) &&
+        string.Equals(
+            left.Location.GetLineSpan().Path,
+            right.Location.GetLineSpan().Path,
+            System.StringComparison.Ordinal);
 }
 
 internal sealed class DisposableTypeModel

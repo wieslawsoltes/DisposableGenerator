@@ -33,10 +33,9 @@ internal static class SymbolHelpers
 
     internal static bool IsDisposable(
         this ITypeSymbol type,
-        INamedTypeSymbol disposableInterface,
         Func<INamedTypeSymbol, bool>? generationAvailable = null)
     {
-        if (SymbolEqualityComparer.Default.Equals(type, disposableInterface))
+        if (type.SpecialType == SpecialType.System_IDisposable)
         {
             return true;
         }
@@ -45,7 +44,7 @@ internal static class SymbolHelpers
         {
             if (namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
                 namedType.TypeArguments.Length == 1 &&
-                namedType.TypeArguments[0].IsDisposable(disposableInterface, generationAvailable))
+                namedType.TypeArguments[0].IsDisposable(generationAvailable))
             {
                 return true;
             }
@@ -62,20 +61,14 @@ internal static class SymbolHelpers
             }
         }
 
-        return type.AllInterfaces.Any(@interface => SymbolEqualityComparer.Default.Equals(@interface, disposableInterface));
+        return type.AllInterfaces.Any(@interface => @interface.SpecialType == SpecialType.System_IDisposable);
     }
 
     internal static bool IsAsyncDisposable(
         this ITypeSymbol type,
-        INamedTypeSymbol? asyncDisposableInterface,
         Func<INamedTypeSymbol, bool>? generationAvailable = null)
     {
-        if (asyncDisposableInterface is null)
-        {
-            return false;
-        }
-
-        if (SymbolEqualityComparer.Default.Equals(type, asyncDisposableInterface))
+        if (IsAsyncDisposableInterface(type))
         {
             return true;
         }
@@ -84,7 +77,7 @@ internal static class SymbolHelpers
         {
             if (namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
                 namedType.TypeArguments.Length == 1 &&
-                namedType.TypeArguments[0].IsAsyncDisposable(asyncDisposableInterface, generationAvailable))
+                namedType.TypeArguments[0].IsAsyncDisposable(generationAvailable))
             {
                 return true;
             }
@@ -101,8 +94,33 @@ internal static class SymbolHelpers
             }
         }
 
-        return type.AllInterfaces.Any(@interface => SymbolEqualityComparer.Default.Equals(@interface, asyncDisposableInterface));
+        return type.AllInterfaces.Any(IsAsyncDisposableInterface);
     }
+
+    internal static INamedTypeSymbol? FindTypeByMetadataName(INamedTypeSymbol context, string metadataName)
+    {
+        var declared = context.ContainingAssembly.GetTypeByMetadataName(metadataName);
+        if (declared is not null)
+        {
+            return declared;
+        }
+
+        foreach (var assembly in context.ContainingModule.ReferencedAssemblySymbols)
+        {
+            var referenced = assembly.GetTypeByMetadataName(metadataName);
+            if (referenced is not null)
+            {
+                return referenced;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsAsyncDisposableInterface(ITypeSymbol type) =>
+        type is INamedTypeSymbol namedType &&
+        namedType.MetadataName == "IAsyncDisposable" &&
+        namedType.ContainingNamespace.ToDisplayString() == "System";
 
     internal static bool GetNamedBoolean(this AttributeData attribute, string name, bool defaultValue = false)
     {

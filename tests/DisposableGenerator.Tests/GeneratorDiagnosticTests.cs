@@ -26,6 +26,22 @@ public sealed class GeneratorDiagnosticTests
         Assert.Contains("global::System.GC.SuppressFinalize(this)", result.GeneratedSource);
     }
 
+    [Fact]
+    public void Unrelated_source_edit_keeps_per_type_generation_output_unchanged()
+    {
+        const string source = """
+            using DisposableGenerator;
+            [GenerateDisposable]
+            public partial class Owner { }
+            """;
+
+        var result = GeneratorTestHarness.RunAfterUnrelatedEdit(source);
+        var step = Assert.Single(result.Results.Single().TrackedSteps["DisposableGenerationOutput"]);
+        var output = Assert.Single(step.Outputs);
+
+        Assert.Equal(IncrementalStepRunReason.Unchanged, output.Reason);
+    }
+
     [Theory]
     [InlineData("[GenerateDisposable] class Owner { }", "DISP001")]
     [InlineData("[GenerateDisposable] public partial struct Owner { }", "DISP007")]
@@ -865,6 +881,51 @@ public sealed class GeneratorDiagnosticTests
             public class FrameworkBase
             {
                 public ValueTask DisposeAsync() => default;
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner : FrameworkBase { }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP016");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS0108");
+        Assert.DoesNotContain("partial class Owner", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accessible_static_non_generated_base_Dispose_method_reports_DISP016()
+    {
+        const string source = """
+            using DisposableGenerator;
+
+            public class FrameworkBase
+            {
+                public static void Dispose() { }
+            }
+
+            [GenerateDisposable]
+            public sealed partial class Owner : FrameworkBase { }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP016");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS0108");
+        Assert.DoesNotContain("partial class Owner", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accessible_static_non_generated_base_DisposeAsync_method_reports_DISP016()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public class FrameworkBase
+            {
+                public static ValueTask DisposeAsync() => default;
             }
 
             [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]

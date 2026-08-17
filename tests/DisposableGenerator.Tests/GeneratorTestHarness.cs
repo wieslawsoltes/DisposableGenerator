@@ -52,6 +52,41 @@ internal static class GeneratorTestHarness
             driverDiagnostics);
     }
 
+    internal static GeneratorDriverRunResult RunAfterUnrelatedEdit(string source)
+    {
+        var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview);
+        var sourceTree = CSharpSyntaxTree.ParseText(source, parseOptions, path: "Owner.cs");
+        var unrelatedTree = CSharpSyntaxTree.ParseText(
+            "public sealed class Unrelated { }",
+            parseOptions,
+            path: "Unrelated.cs");
+        var compilation = CSharpCompilation.Create(
+            "IncrementalGeneratorTests",
+            [sourceTree, unrelatedTree],
+            PlatformReferences,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                nullableContextOptions: NullableContextOptions.Enable));
+        var optionsProvider = new TestAnalyzerConfigOptionsProvider(properties: null);
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            [new DisposablePatternGenerator().AsSourceGenerator()],
+            additionalTexts: null,
+            parseOptions,
+            optionsProvider,
+            new GeneratorDriverOptions(
+                IncrementalGeneratorOutputKind.None,
+                trackIncrementalGeneratorSteps: true));
+
+        driver = driver.RunGenerators(compilation);
+        var updatedUnrelatedTree = CSharpSyntaxTree.ParseText(
+            "public sealed class Unrelated { public int Value { get; } }",
+            parseOptions,
+            path: "Unrelated.cs");
+        var updatedCompilation = compilation.ReplaceSyntaxTree(unrelatedTree, updatedUnrelatedTree);
+        driver = driver.RunGenerators(updatedCompilation);
+        return driver.GetRunResult();
+    }
+
     private static ImmutableArray<MetadataReference> PlatformReferences { get; } =
         ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
         .Split(Path.PathSeparator)
