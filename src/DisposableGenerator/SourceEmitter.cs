@@ -466,6 +466,14 @@ internal static class SourceEmitter
             Line(builder, indent, "OnDisposing();");
         }
 
+        if (model.Members.Any(member => member.IsRefLike && member.SupportsSynchronousDispose))
+        {
+            Line(builder, indent);
+            Line(builder, indent, "static void __DisposeRefLike<TDisposable>(TDisposable disposable)");
+            Line(builder, indent + 1, "where TDisposable : global::System.IDisposable, allows ref struct");
+            Line(builder, indent + 1, "=> disposable.Dispose();");
+        }
+
         for (var index = 0; index < model.Members.Count; index++)
         {
             var ownedMember = model.Members[index];
@@ -480,7 +488,7 @@ internal static class SourceEmitter
                 builder,
                 indent,
                 ownedMember.IsRefLike
-                    ? memberAccess + ".Dispose();"
+                    ? "__DisposeRefLike(" + memberAccess + ");"
                     : "((global::System.IDisposable?)" + memberAccess + ")?.Dispose();");
         }
 
@@ -900,14 +908,28 @@ internal static class SourceEmitter
             EmitMaybeAggregateAction(builder, indent, "OnDisposing();", aggregate);
         }
 
+        if (model.Members.Any(member => member.IsRefLike && member.SupportsSynchronousDispose))
+        {
+            Line(builder, indent, "static void __DisposeRefLike<TDisposable>(TDisposable disposable)");
+            Line(builder, indent + 1, "where TDisposable : global::System.IDisposable, allows ref struct");
+            Line(builder, indent + 1, "=> disposable.Dispose();");
+        }
+
+        if (model.Members.Any(member => member.IsRefLike && member.SupportsAsynchronousDispose))
+        {
+            Line(builder, indent, "static global::System.Threading.Tasks.ValueTask __DisposeRefLikeAsync<TDisposable>(TDisposable disposable)");
+            Line(builder, indent + 1, "where TDisposable : global::System.IAsyncDisposable, allows ref struct");
+            Line(builder, indent + 1, "=> disposable.DisposeAsync();");
+        }
+
         for (var memberIndex = 0; memberIndex < model.Members.Count; memberIndex++)
         {
             var ownedMember = model.Members[memberIndex];
             var memberName = SymbolHelpers.EscapeIdentifier(ownedMember.Symbol.Name);
             var statement = ownedMember.IsRefLike && ownedMember.SupportsAsynchronousDispose
-                ? "await this." + memberName + ".DisposeAsync().ConfigureAwait(false);"
+                ? "await __DisposeRefLikeAsync(this." + memberName + ").ConfigureAwait(false);"
                 : ownedMember.IsRefLike
-                    ? "this." + memberName + ".Dispose();"
+                    ? "__DisposeRefLike(this." + memberName + ");"
                     : ownedMember.SupportsAsynchronousDispose
                 ? "if (this." + memberName + " is global::System.IAsyncDisposable __asyncMember" + memberIndex + ") " +
                   "{ await __asyncMember" + memberIndex + ".DisposeAsync().ConfigureAwait(false); }"
