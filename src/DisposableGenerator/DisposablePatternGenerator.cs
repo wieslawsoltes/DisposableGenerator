@@ -30,12 +30,12 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
 
         var ownedMembers = context.SyntaxProvider.ForAttributeWithMetadataName(
             SymbolHelpers.DisposeMemberAttributeName,
-            static (node, _) => node is VariableDeclaratorSyntax or PropertyDeclarationSyntax,
+            static (node, _) => node is VariableDeclaratorSyntax or PropertyDeclarationSyntax or IndexerDeclarationSyntax,
             static (attributeContext, _) => attributeContext.TargetSymbol);
 
         var borrowedMembers = context.SyntaxProvider.ForAttributeWithMetadataName(
             SymbolHelpers.BorrowedMemberAttributeName,
-            static (node, _) => node is VariableDeclaratorSyntax or PropertyDeclarationSyntax,
+            static (node, _) => node is VariableDeclaratorSyntax or PropertyDeclarationSyntax or IndexerDeclarationSyntax,
             static (attributeContext, _) => attributeContext.TargetSymbol);
 
         var generatedTypeModels = generatedTypes
@@ -789,7 +789,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         INamedTypeSymbol type,
         string methodName)
     {
-        if (!string.Equals(type.Name, methodName, StringComparison.Ordinal))
+        if (!string.Equals(type.Name, SymbolHelpers.IdentifierValueText(methodName), StringComparison.Ordinal))
         {
             return false;
         }
@@ -829,7 +829,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
     {
         var member = FindAccessibleMember(
             type,
-            methodName,
+            SymbolHelpers.IdentifierValueText(methodName),
             static item => item is not IMethodSymbol method || IsConflictingRegistrationMethod(method));
         if (member is null)
         {

@@ -194,6 +194,26 @@ public sealed class GeneratorConfigurationTests
         Assert.DoesNotContain("partial class Owner", result.GeneratedSource, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("DisposableGenerator_RegistrationMethodName")]
+    [InlineData("DisposableGenerator_AsyncRegistrationMethodName")]
+    public void Escaped_registration_method_name_cannot_match_the_generated_owner_type(string propertyName)
+    {
+        const string source = """
+            using DisposableGenerator;
+            [GenerateDisposable(GenerateAsyncDispose = true)]
+            public sealed partial class Owner { }
+            """;
+        var result = GeneratorTestHarness.Run(source, new Dictionary<string, string>
+        {
+            [propertyName] = "@Owner",
+        });
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP012");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS0542");
+        Assert.DoesNotContain("partial class Owner", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void DisposeMember_Order_takes_priority_over_declaration_order()
     {

@@ -616,6 +616,30 @@ public sealed class GeneratorDiagnosticTests
     }
 
     [Fact]
+    public void Owned_indexer_reports_DISP008_instead_of_being_silently_ignored()
+    {
+        const string source = """
+            using DisposableGenerator;
+            [GenerateDisposable]
+            public partial class Owner
+            {
+                [DisposeMember]
+                public System.IDisposable this[int index] => new Resource();
+            }
+
+            public sealed class Resource : System.IDisposable
+            {
+                public void Dispose() { }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP008");
+        Assert.DoesNotContain("this.this", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Field_targeted_owned_attribute_on_auto_property_reports_DISP008_without_emitting_backing_field_access()
     {
         const string source = """

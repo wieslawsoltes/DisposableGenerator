@@ -211,6 +211,9 @@ internal static class SymbolHelpers
             ? "@" + name
             : name;
 
+    internal static string IdentifierValueText(string identifier) =>
+        identifier.Length > 0 && identifier[0] == '@' ? identifier.Substring(1) : identifier;
+
     internal static string TypeDeclarationName(INamedTypeSymbol type)
     {
         var typeName = EscapeIdentifier(type.Name);

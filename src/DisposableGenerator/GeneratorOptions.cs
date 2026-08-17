@@ -91,11 +91,11 @@ internal sealed class GeneratorOptions
         }
 
         if (string.Equals(
-                IdentifierValueText(result.AsyncRegistrationMethodName),
-                IdentifierValueText(result.RegistrationMethodName),
+                SymbolHelpers.IdentifierValueText(result.AsyncRegistrationMethodName),
+                SymbolHelpers.IdentifierValueText(result.RegistrationMethodName),
                 StringComparison.Ordinal))
         {
-            var fallbackName = IdentifierValueText(result.RegistrationMethodName) == "RegisterAsyncDisposable"
+            var fallbackName = SymbolHelpers.IdentifierValueText(result.RegistrationMethodName) == "RegisterAsyncDisposable"
                 ? "RegisterAsyncDisposableResource"
                 : "RegisterAsyncDisposable";
             result.Errors.Add(new ConfigurationError(
@@ -127,8 +127,8 @@ internal sealed class GeneratorOptions
 
     private static bool IsValidGeneratedMethodName(string methodName)
     {
-        var valueText = IdentifierValueText(methodName);
-        return SyntaxFacts.IsValidIdentifier(methodName) &&
+        var valueText = SymbolHelpers.IdentifierValueText(methodName);
+        return IsValidConfiguredIdentifier(methodName, valueText) &&
             SyntaxFacts.GetKeywordKind(valueText) == SyntaxKind.None &&
             valueText != "Dispose" &&
             valueText != "DisposeAsync" &&
@@ -144,8 +144,10 @@ internal sealed class GeneratorOptions
             valueText != "__DisposableGenerator_registeredDisposables";
     }
 
-    private static string IdentifierValueText(string identifier) =>
-        identifier.Length > 0 && identifier[0] == '@' ? identifier.Substring(1) : identifier;
+    private static bool IsValidConfiguredIdentifier(string identifier, string valueText) =>
+        SyntaxFacts.IsValidIdentifier(valueText) &&
+        (identifier.Length == valueText.Length ||
+         (identifier.Length == valueText.Length + 1 && identifier[0] == '@'));
 
     private bool ReadBoolean(AnalyzerConfigOptions options, string name, bool fallback)
     {
