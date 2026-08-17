@@ -269,6 +269,57 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
+    public void Constrained_helper_type_parameter_does_not_shadow_the_owner()
+    {
+        const string source = """
+            using System;
+            using DisposableGenerator;
+
+            [GenerateDisposable]
+            public sealed partial class Owner<TDisposable>
+                where TDisposable : IDisposable
+            {
+                [DisposeMember]
+                public TDisposable Resource { get; } = default!;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS0693");
+        Assert.Contains("__DisposeConstrained<TDisposable2>", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Async_cleanup_does_not_emit_an_unused_sync_constrained_helper_for_dual_structs()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner
+            {
+                [DisposeMember]
+                public Resource Resource { get; } = default;
+            }
+
+            public struct Resource : IDisposable, IAsyncDisposable
+            {
+                public void Dispose() { }
+                public ValueTask DisposeAsync() => default;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS8321");
+        Assert.DoesNotContain("static void __DisposeConstrained", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("__DisposeConstrainedAsync", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Ref_like_permitting_type_parameter_uses_constrained_async_dispatch()
     {
         const string source = """

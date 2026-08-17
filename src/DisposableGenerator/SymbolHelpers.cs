@@ -246,15 +246,7 @@ internal static class SymbolHelpers
 
     internal static string RegistrationTypeParameterName(INamedTypeSymbol type)
     {
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        for (var current = type; current is not null; current = current.ContainingType)
-        {
-            foreach (var parameter in current.TypeParameters)
-            {
-                names.Add(parameter.Name);
-            }
-        }
-
+        var names = ContainingTypeParameterNames(type);
         var candidate = "T";
         var suffix = 0;
         while (names.Contains(candidate))
@@ -264,6 +256,34 @@ internal static class SymbolHelpers
         }
 
         return candidate;
+    }
+
+    internal static string ConstrainedHelperTypeParameterName(INamedTypeSymbol type)
+    {
+        var names = ContainingTypeParameterNames(type);
+        var candidate = "TDisposable";
+        var suffix = 1;
+        while (names.Contains(candidate))
+        {
+            suffix++;
+            candidate = "TDisposable" + suffix;
+        }
+
+        return candidate;
+    }
+
+    private static HashSet<string> ContainingTypeParameterNames(INamedTypeSymbol type)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        for (var current = type; current is not null; current = current.ContainingType)
+        {
+            foreach (var parameter in current.TypeParameters)
+            {
+                names.Add(parameter.Name);
+            }
+        }
+
+        return names;
     }
 
     internal static string DeclarationKeyword(INamedTypeSymbol type)

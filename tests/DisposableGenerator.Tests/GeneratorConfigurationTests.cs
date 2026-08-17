@@ -123,6 +123,37 @@ public sealed class GeneratorConfigurationTests
         Assert.Contains("RegisterAsyncDisposable<", result.GeneratedSource, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Registration_method_names_compare_escaped_identifier_value_text()
+    {
+        const string source = """
+            using DisposableGenerator;
+            [GenerateDisposable(GenerateAsyncDispose = true)]
+            public partial class Owner { }
+            """;
+        var result = GeneratorTestHarness.Run(source, new Dictionary<string, string>
+        {
+            ["DisposableGenerator_RegistrationMethodName"] = "Own",
+            ["DisposableGenerator_AsyncRegistrationMethodName"] = "@Own",
+        });
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP009");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS0111");
+        Assert.Contains("RegisterAsyncDisposable<", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Escaped_generated_member_name_is_still_reserved()
+    {
+        var result = GeneratorTestHarness.Run(Source, new Dictionary<string, string>
+        {
+            ["DisposableGenerator_RegistrationMethodName"] = "@Dispose",
+        });
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP009");
+        Assert.DoesNotContain("@Dispose<", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("DisposableGenerator_RegistrationMethodName", "__DisposableGenerator_asyncCleanupCompleted")]
     [InlineData("DisposableGenerator_AsyncRegistrationMethodName", "__DisposableGenerator_unmanagedDisposeState")]

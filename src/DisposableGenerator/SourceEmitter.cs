@@ -917,7 +917,7 @@ internal static class SourceEmitter
             EmitMaybeAggregateAction(builder, indent, "OnDisposing();", aggregate);
         }
 
-        EmitConstrainedSynchronousHelpers(builder, indent, model);
+        EmitConstrainedSynchronousHelpers(builder, indent, model, asynchronousCleanup: true);
         EmitConstrainedAsynchronousHelpers(builder, indent, model);
 
         for (var memberIndex = 0; memberIndex < model.Members.Count; memberIndex++)
@@ -995,12 +995,13 @@ internal static class SourceEmitter
     private static void EmitConstrainedSynchronousHelpers(
         StringBuilder builder,
         int indent,
-        DisposableTypeModel model)
+        DisposableTypeModel model,
+        bool asynchronousCleanup = false)
     {
-        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: false, byReference: false);
-        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: false, byReference: true);
-        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: true, byReference: false);
-        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: true, byReference: true);
+        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: false, byReference: false, asynchronousCleanup);
+        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: false, byReference: true, asynchronousCleanup);
+        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: true, byReference: false, asynchronousCleanup);
+        EmitConstrainedSynchronousHelper(builder, indent, model, allowsRefLike: true, byReference: true, asynchronousCleanup);
     }
 
     private static void EmitConstrainedSynchronousHelper(
@@ -1008,25 +1009,29 @@ internal static class SourceEmitter
         int indent,
         DisposableTypeModel model,
         bool allowsRefLike,
-        bool byReference)
+        bool byReference,
+        bool asynchronousCleanup)
     {
         if (!model.Members.Any(member =>
                 (member.RequiresConstrainedDisposalDispatch &&
                  member.SupportsSynchronousDispose &&
+                 (!asynchronousCleanup || !member.SupportsAsynchronousDispose) &&
                  member.AllowsRefLikeDisposalDispatch == allowsRefLike &&
                  UsesByReferenceHelper(member) == byReference) ||
                 (!allowsRefLike &&
                  byReference &&
                  member.IsNullableValueType &&
                  member.SupportsSynchronousDispose &&
+                 (!asynchronousCleanup || !member.SupportsAsynchronousDispose) &&
                  CanPreserveDisposalMutation(member))))
         {
             return;
         }
 
         var helperName = ConstrainedHelperName(allowsRefLike, byReference, asynchronous: false);
-        Line(builder, indent, "static void " + helperName + "<TDisposable>(" + (byReference ? "ref " : string.Empty) + "TDisposable disposable)");
-        Line(builder, indent + 1, "where TDisposable : global::System.IDisposable" + (allowsRefLike ? ", allows ref struct" : string.Empty));
+        var typeParameter = SymbolHelpers.ConstrainedHelperTypeParameterName(model.Type);
+        Line(builder, indent, "static void " + helperName + "<" + typeParameter + ">(" + (byReference ? "ref " : string.Empty) + typeParameter + " disposable)");
+        Line(builder, indent + 1, "where " + typeParameter + " : global::System.IDisposable" + (allowsRefLike ? ", allows ref struct" : string.Empty));
         Line(builder, indent, "{");
         Line(builder, indent + 1, "if (disposable is not null)");
         Line(builder, indent + 1, "{");
@@ -1068,8 +1073,9 @@ internal static class SourceEmitter
         }
 
         var helperName = ConstrainedHelperName(allowsRefLike, byReference, asynchronous: true);
-        Line(builder, indent, "static global::System.Threading.Tasks.ValueTask " + helperName + "<TDisposable>(" + (byReference ? "ref " : string.Empty) + "TDisposable disposable)");
-        Line(builder, indent + 1, "where TDisposable : global::System.IAsyncDisposable" + (allowsRefLike ? ", allows ref struct" : string.Empty));
+        var typeParameter = SymbolHelpers.ConstrainedHelperTypeParameterName(model.Type);
+        Line(builder, indent, "static global::System.Threading.Tasks.ValueTask " + helperName + "<" + typeParameter + ">(" + (byReference ? "ref " : string.Empty) + typeParameter + " disposable)");
+        Line(builder, indent + 1, "where " + typeParameter + " : global::System.IAsyncDisposable" + (allowsRefLike ? ", allows ref struct" : string.Empty));
         Line(builder, indent + 1, "=> disposable is null ? default : disposable.DisposeAsync();");
     }
 

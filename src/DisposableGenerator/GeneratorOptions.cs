@@ -90,9 +90,12 @@ internal sealed class GeneratorOptions
             }
         }
 
-        if (result.AsyncRegistrationMethodName == result.RegistrationMethodName)
+        if (string.Equals(
+                IdentifierValueText(result.AsyncRegistrationMethodName),
+                IdentifierValueText(result.RegistrationMethodName),
+                StringComparison.Ordinal))
         {
-            var fallbackName = result.RegistrationMethodName == "RegisterAsyncDisposable"
+            var fallbackName = IdentifierValueText(result.RegistrationMethodName) == "RegisterAsyncDisposable"
                 ? "RegisterAsyncDisposableResource"
                 : "RegisterAsyncDisposable";
             result.Errors.Add(new ConfigurationError(
@@ -122,21 +125,27 @@ internal sealed class GeneratorOptions
         return result;
     }
 
-    private static bool IsValidGeneratedMethodName(string methodName) =>
-        SyntaxFacts.IsValidIdentifier(methodName) &&
-        SyntaxFacts.GetKeywordKind(methodName) == SyntaxKind.None &&
-        methodName != "Dispose" &&
-        methodName != "DisposeAsync" &&
-        methodName != "DisposeAsyncCore" &&
-        methodName != "OnDisposing" &&
-        methodName != "OnDisposed" &&
-        methodName != "DisposeUnmanaged" &&
-        methodName != "__DisposableGenerator_disposeState" &&
-        methodName != "__DisposableGenerator_disposalStarted" &&
-        methodName != "__DisposableGenerator_asyncCleanupCompleted" &&
-        methodName != "__DisposableGenerator_unmanagedDisposeState" &&
-        methodName != "__DisposableGenerator_disposeGate" &&
-        methodName != "__DisposableGenerator_registeredDisposables";
+    private static bool IsValidGeneratedMethodName(string methodName)
+    {
+        var valueText = IdentifierValueText(methodName);
+        return SyntaxFacts.IsValidIdentifier(methodName) &&
+            SyntaxFacts.GetKeywordKind(valueText) == SyntaxKind.None &&
+            valueText != "Dispose" &&
+            valueText != "DisposeAsync" &&
+            valueText != "DisposeAsyncCore" &&
+            valueText != "OnDisposing" &&
+            valueText != "OnDisposed" &&
+            valueText != "DisposeUnmanaged" &&
+            valueText != "__DisposableGenerator_disposeState" &&
+            valueText != "__DisposableGenerator_disposalStarted" &&
+            valueText != "__DisposableGenerator_asyncCleanupCompleted" &&
+            valueText != "__DisposableGenerator_unmanagedDisposeState" &&
+            valueText != "__DisposableGenerator_disposeGate" &&
+            valueText != "__DisposableGenerator_registeredDisposables";
+    }
+
+    private static string IdentifierValueText(string identifier) =>
+        identifier.Length > 0 && identifier[0] == '@' ? identifier.Substring(1) : identifier;
 
     private bool ReadBoolean(AnalyzerConfigOptions options, string name, bool fallback)
     {
