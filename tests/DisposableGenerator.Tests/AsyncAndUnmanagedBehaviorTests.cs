@@ -758,6 +758,131 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
+    public void StopOnFirstPreservesManagedFailureWhenUnmanagedCleanupAlsoFails()
+    {
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static string Run()
+                {
+                    var events = new List<string>();
+                    try
+                    {
+                        new Owner(events).Dispose();
+                        return "no-error";
+                    }
+                    catch (InvalidOperationException error)
+                    {
+                        return error.Message + "|" + string.Join(",", events);
+                    }
+                }
+            }
+
+            [GenerateDisposable(GenerateUnmanagedCleanup = true)]
+            public sealed partial class Owner
+            {
+                private readonly List<string> _events;
+                [DisposeMember] private readonly Resource _resource;
+
+                public Owner(List<string> events)
+                {
+                    _events = events;
+                    _resource = new Resource(events);
+                }
+
+                partial void DisposeUnmanaged()
+                {
+                    _events.Add("unmanaged");
+                    throw new InvalidOperationException("unmanaged");
+                }
+            }
+
+            public sealed class Resource(List<string> events) : IDisposable
+            {
+                public void Dispose()
+                {
+                    events.Add("managed");
+                    throw new InvalidOperationException("managed");
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var value = (string)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal("managed|managed,unmanaged", value);
+    }
+
+    [Fact]
+    public async Task ConjunctiveStopOnFirstPreservesAsyncFailureWhenUnmanagedCleanupAlsoFails()
+    {
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<string> Run()
+                {
+                    var events = new List<string>();
+                    try
+                    {
+                        await new Owner(events).DisposeAsync();
+                        return "no-error";
+                    }
+                    catch (InvalidOperationException error)
+                    {
+                        return error.Message + "|" + string.Join(",", events);
+                    }
+                }
+            }
+
+            [GenerateDisposable(GenerateAsyncDispose = true, GenerateUnmanagedCleanup = true)]
+            public sealed partial class Owner
+            {
+                private readonly List<string> _events;
+                [DisposeMember] private readonly Resource _resource;
+
+                public Owner(List<string> events)
+                {
+                    _events = events;
+                    _resource = new Resource(events);
+                }
+
+                partial void DisposeUnmanaged()
+                {
+                    _events.Add("unmanaged");
+                    throw new InvalidOperationException("unmanaged");
+                }
+            }
+
+            public sealed class Resource(List<string> events) : IDisposable, IAsyncDisposable
+            {
+                public void Dispose() { }
+
+                public ValueTask DisposeAsync()
+                {
+                    events.Add("async");
+                    return ValueTask.FromException(new InvalidOperationException("async"));
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var task = (Task<string>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal("async|async,unmanaged", await task);
+    }
+
+    [Fact]
     public void GeneratedFinalizerInvokesOnlyUnmanagedCleanupOnFinalizationPath()
     {
         const string source = """

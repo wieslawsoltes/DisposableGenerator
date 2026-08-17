@@ -187,17 +187,18 @@ internal static class SourceEmitter
         }
         else if (model.GenerateSynchronousDispose)
         {
-            Line(builder, indent + 2, "try");
-            Line(builder, indent + 2, "{");
-            Line(builder, indent + 3, "await DisposeAsyncCore().ConfigureAwait(false);");
-            Line(builder, indent + 2, "}");
-            Line(builder, indent + 2, "finally");
-            Line(builder, indent + 2, "{");
-            Line(builder, indent + 3, "if (global::System.Threading.Volatile.Read(ref __DisposableGenerator_asyncCleanupCompleted) != 0)");
-            Line(builder, indent + 3, "{");
-            Line(builder, indent + 4, "Dispose(false);");
-            Line(builder, indent + 3, "}");
-            Line(builder, indent + 2, "}");
+            EmitPreservingFinally(
+                builder,
+                indent + 2,
+                "__asyncException",
+                primaryIndent => Line(builder, primaryIndent, "await DisposeAsyncCore().ConfigureAwait(false);"),
+                finallyIndent =>
+                {
+                    Line(builder, finallyIndent, "if (global::System.Threading.Volatile.Read(ref __DisposableGenerator_asyncCleanupCompleted) != 0)");
+                    Line(builder, finallyIndent, "{");
+                    Line(builder, finallyIndent + 1, "Dispose(false);");
+                    Line(builder, finallyIndent, "}");
+                });
         }
         else
         {
@@ -344,14 +345,12 @@ internal static class SourceEmitter
             Line(builder, indent + 2, "return;");
             Line(builder, indent + 1, "}");
             Line(builder, indent);
-            Line(builder, indent + 1, "try");
-            Line(builder, indent + 1, "{");
-            EmitSynchronousLevelCleanup(builder, indent + 2, model, registeredVariable: null);
-            Line(builder, indent + 1, "}");
-            Line(builder, indent + 1, "finally");
-            Line(builder, indent + 1, "{");
-            Line(builder, indent + 2, "base.Dispose(disposing);");
-            Line(builder, indent + 1, "}");
+            EmitPreservingFinally(
+                builder,
+                indent + 1,
+                "__levelException",
+                primaryIndent => EmitSynchronousLevelCleanup(builder, primaryIndent, model, registeredVariable: null),
+                finallyIndent => Line(builder, finallyIndent, "base.Dispose(disposing);"));
             Line(builder, indent, "}");
             return;
         }
@@ -404,14 +403,12 @@ internal static class SourceEmitter
         Line(builder, indent + 1, "global::System.Threading.Interlocked.Exchange(ref __DisposableGenerator_disposeState, 1);");
         if (model.HasGeneratedBase)
         {
-            Line(builder, indent + 1, "try");
-            Line(builder, indent + 1, "{");
-            EmitUnmanagedCleanupOnce(builder, indent + 2, model);
-            Line(builder, indent + 1, "}");
-            Line(builder, indent + 1, "finally");
-            Line(builder, indent + 1, "{");
-            Line(builder, indent + 2, "base.Dispose(false);");
-            Line(builder, indent + 1, "}");
+            EmitPreservingFinally(
+                builder,
+                indent + 1,
+                "__unmanagedException",
+                primaryIndent => EmitUnmanagedCleanupOnce(builder, primaryIndent, model),
+                finallyIndent => Line(builder, finallyIndent, "base.Dispose(false);"));
         }
         else
         {
@@ -448,14 +445,12 @@ internal static class SourceEmitter
             return;
         }
 
-        Line(builder, indent, "try");
-        Line(builder, indent, "{");
-        EmitManagedCleanup(builder, indent + 1, model, registeredVariable);
-        Line(builder, indent, "}");
-        Line(builder, indent, "finally");
-        Line(builder, indent, "{");
-        EmitUnmanagedCleanupOnce(builder, indent + 1, model);
-        Line(builder, indent, "}");
+        EmitPreservingFinally(
+            builder,
+            indent,
+            "__managedException",
+            primaryIndent => EmitManagedCleanup(builder, primaryIndent, model, registeredVariable),
+            finallyIndent => EmitUnmanagedCleanupOnce(builder, finallyIndent, model));
     }
 
     private static void EmitManagedCleanup(StringBuilder builder, int indent, DisposableTypeModel model, string? registeredVariable)
@@ -714,6 +709,43 @@ internal static class SourceEmitter
         Line(builder, indent, "}");
     }
 
+    private static void EmitPreservingFinally(
+        StringBuilder builder,
+        int indent,
+        string exceptionVariable,
+        Action<int> emitPrimary,
+        Action<int> emitFinally)
+    {
+        Line(builder, indent, "global::System.Exception? " + exceptionVariable + " = null;");
+        Line(builder, indent, "try");
+        Line(builder, indent, "{");
+        emitPrimary(indent + 1);
+        Line(builder, indent, "}");
+        Line(builder, indent, "catch (global::System.Exception __exception)");
+        Line(builder, indent, "{");
+        Line(builder, indent + 1, exceptionVariable + " = __exception;");
+        Line(builder, indent + 1, "throw;");
+        Line(builder, indent, "}");
+        Line(builder, indent, "finally");
+        Line(builder, indent, "{");
+        Line(builder, indent + 1, "if (" + exceptionVariable + " is null)");
+        Line(builder, indent + 1, "{");
+        emitFinally(indent + 2);
+        Line(builder, indent + 1, "}");
+        Line(builder, indent + 1, "else");
+        Line(builder, indent + 1, "{");
+        Line(builder, indent + 2, "try");
+        Line(builder, indent + 2, "{");
+        emitFinally(indent + 3);
+        Line(builder, indent + 2, "}");
+        Line(builder, indent + 2, "catch (global::System.Exception)");
+        Line(builder, indent + 2, "{");
+        Line(builder, indent + 3, "// Preserve the exception that stopped the primary cleanup path.");
+        Line(builder, indent + 2, "}");
+        Line(builder, indent + 1, "}");
+        Line(builder, indent, "}");
+    }
+
     private static void EmitDisposeAsyncCore(StringBuilder builder, int indent, DisposableTypeModel model)
     {
         if (model.Options.DisposalExceptionBehavior == DisposalExceptionBehavior.ContinueAndAggregate)
@@ -730,41 +762,12 @@ internal static class SourceEmitter
         Line(builder, indent, "{");
         var registeredVariable = PrepareAsyncDisposal(builder, indent + 1, model);
         Line(builder, indent);
-        Line(builder, indent + 1, "try");
-        Line(builder, indent + 1, "{");
-        EmitAsyncManagedCleanup(builder, indent + 2, model, registeredVariable, aggregate: false);
-        Line(builder, indent + 1, "}");
-        Line(builder, indent + 1, "finally");
-        Line(builder, indent + 1, "{");
-        if (model.GenerateUnmanagedCleanup && !model.GenerateSynchronousDispose)
-        {
-            if (model.HasGeneratedBase)
-            {
-                Line(builder, indent + 2, "try");
-                Line(builder, indent + 2, "{");
-                Line(builder, indent + 3, "DisposeUnmanaged();");
-                Line(builder, indent + 2, "}");
-                Line(builder, indent + 2, "finally");
-                Line(builder, indent + 2, "{");
-                Line(builder, indent + 3, "await base.DisposeAsyncCore().ConfigureAwait(false);");
-                Line(builder, indent + 2, "}");
-            }
-            else
-            {
-                Line(builder, indent + 2, "DisposeUnmanaged();");
-            }
-        }
-        else if (model.HasGeneratedBase)
-        {
-            Line(builder, indent + 2, "await base.DisposeAsyncCore().ConfigureAwait(false);");
-        }
-
-        if (!model.HasGeneratedBase && model.GenerateSynchronousDispose)
-        {
-            Line(builder, indent + 2, "global::System.Threading.Volatile.Write(ref __DisposableGenerator_asyncCleanupCompleted, 1);");
-        }
-
-        Line(builder, indent + 1, "}");
+        EmitPreservingFinally(
+            builder,
+            indent + 1,
+            "__managedException",
+            primaryIndent => EmitAsyncManagedCleanup(builder, primaryIndent, model, registeredVariable, aggregate: false),
+            finallyIndent => EmitStopOnFirstAsyncCoreCompletion(builder, finallyIndent, model));
         if (!HasAwaitedAsyncCleanup(model))
         {
             Line(builder, indent);
@@ -772,6 +775,38 @@ internal static class SourceEmitter
         }
 
         Line(builder, indent, "}");
+    }
+
+    private static void EmitStopOnFirstAsyncCoreCompletion(
+        StringBuilder builder,
+        int indent,
+        DisposableTypeModel model)
+    {
+        if (model.GenerateUnmanagedCleanup && !model.GenerateSynchronousDispose)
+        {
+            if (model.HasGeneratedBase)
+            {
+                EmitPreservingFinally(
+                    builder,
+                    indent,
+                    "__unmanagedException",
+                    primaryIndent => Line(builder, primaryIndent, "DisposeUnmanaged();"),
+                    finallyIndent => Line(builder, finallyIndent, "await base.DisposeAsyncCore().ConfigureAwait(false);"));
+            }
+            else
+            {
+                Line(builder, indent, "DisposeUnmanaged();");
+            }
+        }
+        else if (model.HasGeneratedBase)
+        {
+            Line(builder, indent, "await base.DisposeAsyncCore().ConfigureAwait(false);");
+        }
+
+        if (!model.HasGeneratedBase && model.GenerateSynchronousDispose)
+        {
+            Line(builder, indent, "global::System.Threading.Volatile.Write(ref __DisposableGenerator_asyncCleanupCompleted, 1);");
+        }
     }
 
     private static void EmitAggregateDisposeAsyncCore(StringBuilder builder, int indent, DisposableTypeModel model)
