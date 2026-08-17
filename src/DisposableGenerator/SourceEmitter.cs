@@ -936,6 +936,10 @@ internal static class SourceEmitter
                     ? WritableAsynchronousDisposal(ownedMember, "this." + memberName, memberIndex)
                 : ownedMember.RequiresConstrainedDisposalDispatch && CanWriteBack(ownedMember)
                     ? WritableSynchronousDisposal(ownedMember, "this." + memberName, memberIndex)
+                : ownedMember.RequiresConstrainedDisposalDispatch &&
+                    CanDisposeByReference(ownedMember) &&
+                    ownedMember.SupportsAsynchronousDispose
+                    ? ByReferenceAsynchronousDisposal(ownedMember, "this." + memberName, memberIndex)
                 : ownedMember.RequiresConstrainedDisposalDispatch && ownedMember.SupportsAsynchronousDispose
                 ? "await " + ConstrainedAsynchronousDisposal(ownedMember, "this." + memberName) + ".ConfigureAwait(false);"
                 : ownedMember.RequiresConstrainedDisposalDispatch
@@ -1142,6 +1146,21 @@ internal static class SourceEmitter
             byReference: true,
             asynchronous: true) + "(ref " + valueName + ")";
         return WriteBackAsynchronousDisposal(memberAccess, memberAccess, valueName, invocation, memberIndex);
+    }
+
+    private static string ByReferenceAsynchronousDisposal(
+        OwnedMemberModel member,
+        string memberAccess,
+        int memberIndex)
+    {
+        var taskName = "__memberDisposeTask" + memberIndex;
+        var invocation = ConstrainedHelperName(
+            member.AllowsRefLikeDisposalDispatch,
+            byReference: true,
+            asynchronous: true) + "(ref " + memberAccess + ")";
+        return "{ var " + taskName + " = " + invocation + "; if (!" + taskName +
+            ".GetAwaiter().IsCompleted) { " + memberAccess + " = default; } await " + taskName +
+            ".ConfigureAwait(false); }";
     }
 
     private static string WriteBackDisposal(
