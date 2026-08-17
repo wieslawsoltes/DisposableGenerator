@@ -503,6 +503,95 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
+    public void Settable_struct_properties_preserve_sync_disposal_mutations()
+    {
+        const string source = """
+            using System;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static string Run()
+                {
+                    var owner = new Owner();
+                    owner.Dispose();
+                    return owner.Resource.Disposed + "," + owner.NullableResource!.Value.Disposed;
+                }
+            }
+
+            [GenerateDisposable]
+            public sealed partial class Owner
+            {
+                [DisposeMember]
+                public Resource Resource { get; set; } = new Resource();
+
+                [DisposeMember]
+                public Resource? NullableResource { get; set; } = new Resource();
+            }
+
+            public struct Resource : IDisposable
+            {
+                public bool Disposed { get; private set; }
+
+                void IDisposable.Dispose() => Disposed = true;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("this.Resource = __ownedMember", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("this.NullableResource = __nullableMember", result.GeneratedSource, StringComparison.Ordinal);
+        var value = (string)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal("True,True", value);
+    }
+
+    [Fact]
+    public async Task Settable_struct_property_preserves_async_disposal_mutation()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<bool> Run()
+                {
+                    var owner = new Owner();
+                    await owner.DisposeAsync();
+                    return owner.Resource.Disposed;
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner
+            {
+                [DisposeMember]
+                public Resource Resource { get; set; } = new Resource();
+            }
+
+            public struct Resource : IAsyncDisposable
+            {
+                public bool Disposed { get; private set; }
+
+                ValueTask IAsyncDisposable.DisposeAsync()
+                {
+                    Disposed = true;
+                    return default;
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("this.Resource = __ownedMember", result.GeneratedSource, StringComparison.Ordinal);
+        var task = (Task<bool>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.True(await task);
+    }
+
+    [Fact]
     public async Task AsyncOnlyOwnerDisposesMembersRegistrationsAndHooksInOrder()
     {
         const string source = """
@@ -1423,10 +1512,17 @@ public sealed class AsyncAndUnmanagedBehaviorTests
             }
             """;
 
-        var result = GeneratorTestHarness.Run(source);
+        var result = GeneratorTestHarness.Run(
+            source,
+            new Dictionary<string, string>
+            {
+                ["DisposableGenerator_DisposalExceptionBehavior"] = "ContinueAndAggregate",
+            });
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
         Assert.Contains("~Owner()", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("__finalizationExceptions", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("Finalizer cleanup failures are contained", result.GeneratedSource, StringComparison.Ordinal);
         var actual = (string)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.Equal("unmanaged", actual);
     }
