@@ -132,6 +132,7 @@ internal sealed class GeneratorOptions
         methodName != "OnDisposed" &&
         methodName != "DisposeUnmanaged" &&
         methodName != "__DisposableGenerator_disposeState" &&
+        methodName != "__DisposableGenerator_disposalStarted" &&
         methodName != "__DisposableGenerator_disposeGate" &&
         methodName != "__DisposableGenerator_registeredDisposables";
 

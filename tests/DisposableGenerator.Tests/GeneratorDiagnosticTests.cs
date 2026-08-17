@@ -380,6 +380,34 @@ public sealed class GeneratorDiagnosticTests
     }
 
     [Fact]
+    public void Nullable_async_disposable_value_type_can_be_owned()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public struct Resource : IAsyncDisposable
+            {
+                public ValueTask DisposeAsync() => default;
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner
+            {
+                [DisposeMember]
+                private readonly Resource? _resource;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP003");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("this._resource", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Registration_generic_parameter_does_not_shadow_containing_type_parameter()
     {
         const string source = """
@@ -484,8 +512,63 @@ public sealed class GeneratorDiagnosticTests
         Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP008");
     }
 
+    [Fact]
+    public void Field_targeted_owned_attribute_on_auto_property_reports_DISP008_without_emitting_backing_field_access()
+    {
+        const string source = """
+            using DisposableGenerator;
+            [GenerateDisposable]
+            public sealed partial class Owner
+            {
+                [field: DisposeMember]
+                public System.IDisposable Resource { get; } = null!;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP008");
+        Assert.DoesNotContain("k__BackingField", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS1001");
+    }
+
+    [Fact]
+    public void Public_dispose_entry_points_suppress_finalization_in_finally_blocks()
+    {
+        const string source = """
+            using DisposableGenerator;
+            [GenerateDisposable]
+            public sealed partial class SyncOwner { }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class AsyncOwner { }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, new Dictionary<string, string>
+        {
+            ["DisposableGenerator_GenerateRegistrationMethod"] = "false",
+        });
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var syncStart = result.GeneratedSource.IndexOf("public void Dispose()", StringComparison.Ordinal);
+        var syncEnd = result.GeneratedSource.IndexOf("public async", syncStart, StringComparison.Ordinal);
+        var syncDispose = result.GeneratedSource.Substring(syncStart, syncEnd - syncStart);
+        Assert.True(syncDispose.IndexOf("try", StringComparison.Ordinal) < syncDispose.IndexOf("Dispose(true);", StringComparison.Ordinal));
+        Assert.True(syncDispose.IndexOf("Dispose(true);", StringComparison.Ordinal) < syncDispose.IndexOf("finally", StringComparison.Ordinal));
+        Assert.True(syncDispose.IndexOf("finally", StringComparison.Ordinal) < syncDispose.IndexOf("GC.SuppressFinalize(this);", StringComparison.Ordinal));
+
+        var asyncStart = syncEnd;
+        var asyncEnd = result.GeneratedSource.IndexOf("ValueTask DisposeAsyncCore()", asyncStart, StringComparison.Ordinal);
+        var asyncDispose = result.GeneratedSource.Substring(asyncStart, asyncEnd - asyncStart);
+        Assert.True(asyncDispose.IndexOf("try", StringComparison.Ordinal) < asyncDispose.IndexOf("DisposeAsyncCore()", StringComparison.Ordinal));
+        var asyncFinally = asyncDispose.LastIndexOf("finally", StringComparison.Ordinal);
+        Assert.True(asyncFinally >= 0);
+        Assert.True(asyncFinally < asyncDispose.IndexOf("GC.SuppressFinalize(this);", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("private int __DisposableGenerator_disposeState;", "DISP012")]
+    [InlineData("private int __DisposableGenerator_disposalStarted;", "DISP012")]
     [InlineData("protected T RegisterDisposable<T>(T value) where T : System.IDisposable => value;", "DISP012")]
     [InlineData("private void OnDisposing() { }", "DISP015")]
     public void Generated_infrastructure_collisions_report_actionable_diagnostics(string member, string diagnosticId)

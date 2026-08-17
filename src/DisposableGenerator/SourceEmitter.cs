@@ -70,6 +70,7 @@ internal static class SourceEmitter
 
         if (!model.HasGeneratedBase && model.Options.GenerateRegistrationMethod)
         {
+            Line(builder, indent, "private int __DisposableGenerator_disposalStarted;");
             Line(builder, indent, "private readonly object __DisposableGenerator_disposeGate = new object();");
             Line(builder, indent, "private global::System.Collections.Generic.List<object>? __DisposableGenerator_registeredDisposables;");
         }
@@ -80,7 +81,7 @@ internal static class SourceEmitter
         {
             if (model.GenerateSynchronousDispose)
             {
-                EmitPublicDispose(builder, indent);
+                EmitPublicDispose(builder, indent, model.Options.GenerateRegistrationMethod);
                 Line(builder, indent);
             }
 
@@ -146,13 +147,20 @@ internal static class SourceEmitter
             : " : global::System.IAsyncDisposable";
     }
 
-    private static void EmitPublicDispose(StringBuilder builder, int indent)
+    private static void EmitPublicDispose(StringBuilder builder, int indent, bool generateRegistrationMethod)
     {
         Line(builder, indent, "/// <inheritdoc />");
         Line(builder, indent, "public void Dispose()");
         Line(builder, indent, "{");
-        Line(builder, indent + 1, "Dispose(true);");
-        Line(builder, indent + 1, "global::System.GC.SuppressFinalize(this);");
+        Line(builder, indent + 1, "try");
+        Line(builder, indent + 1, "{");
+        EmitBeginDisposal(builder, indent + 2, generateRegistrationMethod);
+        Line(builder, indent + 2, "Dispose(true);");
+        Line(builder, indent + 1, "}");
+        Line(builder, indent + 1, "finally");
+        Line(builder, indent + 1, "{");
+        Line(builder, indent + 2, "global::System.GC.SuppressFinalize(this);");
+        Line(builder, indent + 1, "}");
         Line(builder, indent, "}");
     }
 
@@ -161,39 +169,60 @@ internal static class SourceEmitter
         Line(builder, indent, "/// <inheritdoc />");
         Line(builder, indent, "public async global::System.Threading.Tasks.ValueTask DisposeAsync()");
         Line(builder, indent, "{");
+        Line(builder, indent + 1, "try");
+        Line(builder, indent + 1, "{");
+        EmitBeginDisposal(builder, indent + 2, model.Options.GenerateRegistrationMethod);
         if (model.GenerateSynchronousDispose &&
             model.Options.DisposalExceptionBehavior == DisposalExceptionBehavior.ContinueAndAggregate)
         {
-            Line(builder, indent + 1, "global::System.Collections.Generic.List<global::System.Exception>? __exceptions = null;");
-            EmitAggregateAction(builder, indent + 1, "await DisposeAsyncCore().ConfigureAwait(false);", "__exceptions");
+            Line(builder, indent + 2, "global::System.Collections.Generic.List<global::System.Exception>? __exceptions = null;");
+            EmitAggregateAction(builder, indent + 2, "await DisposeAsyncCore().ConfigureAwait(false);", "__exceptions");
             EmitAggregateAction(
                 builder,
-                indent + 1,
+                indent + 2,
                 "if (global::System.Threading.Volatile.Read(ref __DisposableGenerator_asyncCleanupCompleted) != 0) { Dispose(false); }",
                 "__exceptions");
-            EmitAggregateThrow(builder, indent + 1, "__exceptions");
+            EmitAggregateThrow(builder, indent + 2, "__exceptions");
         }
         else if (model.GenerateSynchronousDispose)
         {
-            Line(builder, indent + 1, "try");
-            Line(builder, indent + 1, "{");
-            Line(builder, indent + 2, "await DisposeAsyncCore().ConfigureAwait(false);");
-            Line(builder, indent + 1, "}");
-            Line(builder, indent + 1, "finally");
-            Line(builder, indent + 1, "{");
-            Line(builder, indent + 2, "if (global::System.Threading.Volatile.Read(ref __DisposableGenerator_asyncCleanupCompleted) != 0)");
+            Line(builder, indent + 2, "try");
             Line(builder, indent + 2, "{");
-            Line(builder, indent + 3, "Dispose(false);");
+            Line(builder, indent + 3, "await DisposeAsyncCore().ConfigureAwait(false);");
             Line(builder, indent + 2, "}");
-            Line(builder, indent + 1, "}");
+            Line(builder, indent + 2, "finally");
+            Line(builder, indent + 2, "{");
+            Line(builder, indent + 3, "if (global::System.Threading.Volatile.Read(ref __DisposableGenerator_asyncCleanupCompleted) != 0)");
+            Line(builder, indent + 3, "{");
+            Line(builder, indent + 4, "Dispose(false);");
+            Line(builder, indent + 3, "}");
+            Line(builder, indent + 2, "}");
         }
         else
         {
-            Line(builder, indent + 1, "await DisposeAsyncCore().ConfigureAwait(false);");
+            Line(builder, indent + 2, "await DisposeAsyncCore().ConfigureAwait(false);");
         }
 
-        Line(builder, indent + 1, "global::System.GC.SuppressFinalize(this);");
+        Line(builder, indent + 1, "}");
+        Line(builder, indent + 1, "finally");
+        Line(builder, indent + 1, "{");
+        Line(builder, indent + 2, "global::System.GC.SuppressFinalize(this);");
+        Line(builder, indent + 1, "}");
         Line(builder, indent, "}");
+    }
+
+    private static void EmitBeginDisposal(StringBuilder builder, int indent, bool generateRegistrationMethod)
+    {
+        if (!generateRegistrationMethod)
+        {
+            return;
+        }
+
+        Line(builder, indent, "lock (__DisposableGenerator_disposeGate)");
+        Line(builder, indent, "{");
+        Line(builder, indent + 1, "__DisposableGenerator_disposalStarted = 1;");
+        Line(builder, indent, "}");
+        Line(builder, indent);
     }
 
     private static void EmitRegistrationMethod(StringBuilder builder, int indent, INamedTypeSymbol type, GeneratorOptions options)
@@ -214,7 +243,7 @@ internal static class SourceEmitter
         Line(builder, indent);
         Line(builder, indent + 1, "lock (__DisposableGenerator_disposeGate)");
         Line(builder, indent + 1, "{");
-        Line(builder, indent + 2, "if (__DisposableGenerator_disposeState == 0)");
+        Line(builder, indent + 2, "if (__DisposableGenerator_disposalStarted == 0)");
         Line(builder, indent + 2, "{");
         Line(builder, indent + 3, "if (__DisposableGenerator_registeredDisposables is null)");
         Line(builder, indent + 3, "{");
@@ -261,7 +290,7 @@ internal static class SourceEmitter
         Line(builder, indent);
         Line(builder, indent + 1, "lock (__DisposableGenerator_disposeGate)");
         Line(builder, indent + 1, "{");
-        Line(builder, indent + 2, "if (__DisposableGenerator_disposeState == 0)");
+        Line(builder, indent + 2, "if (__DisposableGenerator_disposalStarted == 0)");
         Line(builder, indent + 2, "{");
         Line(builder, indent + 3, "if (__DisposableGenerator_registeredDisposables is null)");
         Line(builder, indent + 3, "{");
@@ -337,6 +366,7 @@ internal static class SourceEmitter
             Line(builder, indent + 1, "object[]? __registered = null;");
             Line(builder, indent + 1, "lock (__DisposableGenerator_disposeGate)");
             Line(builder, indent + 1, "{");
+            Line(builder, indent + 2, "__DisposableGenerator_disposalStarted = 1;");
             Line(builder, indent + 2, "if (__DisposableGenerator_disposeState != 0)");
             Line(builder, indent + 2, "{");
             Line(builder, indent + 3, "return;");
@@ -522,6 +552,7 @@ internal static class SourceEmitter
             Line(builder, indent + 1, "object[]? __registered = null;");
             Line(builder, indent + 1, "lock (__DisposableGenerator_disposeGate)");
             Line(builder, indent + 1, "{");
+            Line(builder, indent + 2, "__DisposableGenerator_disposalStarted = 1;");
             Line(builder, indent + 2, "if (__DisposableGenerator_disposeState != 0)");
             Line(builder, indent + 2, "{");
             Line(builder, indent + 3, "return;");
@@ -796,6 +827,7 @@ internal static class SourceEmitter
         Line(builder, indent, "object[]? __registered = null;");
         Line(builder, indent, "lock (__DisposableGenerator_disposeGate)");
         Line(builder, indent, "{");
+        Line(builder, indent + 1, "__DisposableGenerator_disposalStarted = 1;");
         Line(builder, indent + 1, "if (__DisposableGenerator_disposeState != 0)");
         Line(builder, indent + 1, "{");
         Line(builder, indent + 2, "return;");

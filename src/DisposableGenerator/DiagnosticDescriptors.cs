@@ -67,7 +67,7 @@ internal static class DiagnosticDescriptors
     internal static readonly DiagnosticDescriptor InvalidOwnedMember = new(
         "DISP008",
         "Owned member is unsupported",
-        "Member '{0}' must be a readable instance field or property",
+        "Member '{0}' must be an explicitly declared readable instance field or property",
         Category,
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);

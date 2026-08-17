@@ -198,6 +198,8 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         var members = GetValidOwnedMembers(type, disposableInterface, asyncDisposableInterface, generateAsyncDispose);
         members.Sort((left, right) => CompareOwnedMembers(left, right, options.MemberDisposalOrder));
 
+        ReportImplicitOwnedBackingFields(context, type);
+
         if (options.ReportUnownedDisposableFields)
         {
             ReportUnownedMembers(context, type, disposableInterface, asyncDisposableInterface);
@@ -213,6 +215,20 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             generateFinalizer,
             options);
         context.AddSource(HintName(type), SourceText.From(SourceEmitter.Emit(model), Encoding.UTF8));
+    }
+
+    private static void ReportImplicitOwnedBackingFields(SourceProductionContext context, INamedTypeSymbol type)
+    {
+        foreach (var field in type.GetMembers().OfType<IFieldSymbol>().Where(field =>
+                     field.IsImplicitlyDeclared &&
+                     field.HasAttribute(SymbolHelpers.DisposeMemberAttributeName)))
+        {
+            var associatedMember = field.AssociatedSymbol ?? field;
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.InvalidOwnedMember,
+                associatedMember.BestLocation(),
+                associatedMember.Name));
+        }
     }
 
     private static void ValidateOwnedMember(SourceProductionContext context, ISymbol member, Compilation compilation)
@@ -379,7 +395,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
 
     private static bool IsSupportedOwnedMember(ISymbol member) => member switch
     {
-        IFieldSymbol field => !field.IsStatic && !field.IsConst,
+        IFieldSymbol field => !field.IsImplicitlyDeclared && !field.IsStatic && !field.IsConst,
         IPropertySymbol property =>
             !property.IsStatic &&
             !property.IsIndexer &&
@@ -527,6 +543,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
 
         if (!hasGeneratedBase && options.GenerateRegistrationMethod)
         {
+            hasCollision |= ReportSimpleCollision(context, type, "__DisposableGenerator_disposalStarted", compilation);
             hasCollision |= ReportSimpleCollision(context, type, "__DisposableGenerator_disposeGate", compilation);
             hasCollision |= ReportSimpleCollision(context, type, "__DisposableGenerator_registeredDisposables", compilation);
             hasCollision |= ReportRegistrationMethodCollision(context, type, options.RegistrationMethodName, compilation);

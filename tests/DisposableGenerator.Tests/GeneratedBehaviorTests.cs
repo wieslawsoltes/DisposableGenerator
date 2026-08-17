@@ -41,6 +41,17 @@ public sealed class GeneratedBehaviorTests
     }
 
     [Fact]
+    public void Registration_is_closed_before_generated_derived_cleanup_begins()
+    {
+        var events = new List<string>();
+        var owner = new RegisteringDerivedOwner(events);
+
+        owner.Dispose();
+
+        Assert.Equal(["derived:registration-rejected"], events);
+    }
+
+    [Fact]
     public void Null_registration_is_rejected()
     {
         var owner = new LeafOwner([]);
@@ -171,6 +182,37 @@ internal sealed partial class DerivedOwner : BaseOwner
     partial void OnDisposing() => _events.Add("derived:disposing");
 
     partial void OnDisposed() => _events.Add("derived:disposed");
+}
+
+[GenerateDisposable]
+internal partial class RegistrationBaseOwner
+{
+    protected RegistrationBaseOwner()
+    {
+    }
+}
+
+[GenerateDisposable]
+internal sealed partial class RegisteringDerivedOwner : RegistrationBaseOwner
+{
+    private readonly List<string> _events;
+
+    internal RegisteringDerivedOwner(List<string> events)
+    {
+        _events = events;
+    }
+
+    partial void OnDisposing()
+    {
+        try
+        {
+            RegisterDisposable(new TrackingDisposable("late:disposed", _events));
+        }
+        catch (ObjectDisposedException)
+        {
+            _events.Add("derived:registration-rejected");
+        }
+    }
 }
 
 [GenerateDisposable]

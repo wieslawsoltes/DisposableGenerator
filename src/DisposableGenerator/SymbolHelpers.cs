@@ -74,6 +74,13 @@ internal static class SymbolHelpers
 
         if (type is INamedTypeSymbol namedType)
         {
+            if (namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
+                namedType.TypeArguments.Length == 1 &&
+                namedType.TypeArguments[0].IsAsyncDisposable(asyncDisposableInterface))
+            {
+                return true;
+            }
+
             for (var current = namedType; current is not null; current = current.BaseType)
             {
                 var attribute = current.GetAttribute(GenerateDisposableAttributeName);

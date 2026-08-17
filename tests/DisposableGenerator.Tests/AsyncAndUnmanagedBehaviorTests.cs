@@ -116,6 +116,136 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
+    public async Task NullableAsyncOnlyStructIsDisposedThroughItsAsyncPath()
+    {
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<string> Run()
+                {
+                    var events = new List<string>();
+                    var owner = new Owner(new AsyncToken(events));
+                    await owner.DisposeAsync();
+                    return string.Join(",", events);
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner
+            {
+                [DisposeMember] private readonly AsyncToken? _resource;
+                public Owner(AsyncToken? resource) => _resource = resource;
+            }
+
+            public readonly struct AsyncToken(List<string> events) : IAsyncDisposable
+            {
+                public ValueTask DisposeAsync()
+                {
+                    events.Add("async-token");
+                    return default;
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP003");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var task = (Task<string>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal("async-token", await task);
+    }
+
+    [Fact]
+    public async Task RegistrationIsClosedWhileGeneratedDerivedAsyncCleanupIsAwaiting()
+    {
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<string> Run()
+                {
+                    var events = new List<string>();
+                    var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var owner = new DerivedOwner(started, release);
+                    var disposal = owner.DisposeAsync().AsTask();
+                    await started.Task;
+
+                    try
+                    {
+                        await owner.AddAsync(new TrackingAsyncResource(events));
+                        events.Add("registration-accepted");
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        events.Add("registration-rejected");
+                    }
+
+                    release.SetResult(true);
+                    await disposal;
+                    return string.Join(",", events);
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public partial class BaseOwner
+            {
+                public ValueTask<T> AddAsync<T>(T resource) where T : IAsyncDisposable =>
+                    RegisterAsyncDisposable(resource);
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class DerivedOwner : BaseOwner
+            {
+                [DisposeMember] private readonly IAsyncDisposable _resource;
+
+                public DerivedOwner(TaskCompletionSource<bool> started, TaskCompletionSource<bool> release)
+                {
+                    _resource = new BlockingAsyncResource(started, release);
+                }
+            }
+
+            public sealed class BlockingAsyncResource(
+                TaskCompletionSource<bool> started,
+                TaskCompletionSource<bool> release) : IAsyncDisposable
+            {
+                public async ValueTask DisposeAsync()
+                {
+                    started.SetResult(true);
+                    await release.Task;
+                }
+            }
+
+            public sealed class TrackingAsyncResource(List<string> events) : IAsyncDisposable
+            {
+                public ValueTask DisposeAsync()
+                {
+                    events.Add("late-resource-disposed");
+                    return default;
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, new Dictionary<string, string>
+        {
+            ["DisposableGenerator_ReportUnownedDisposableFields"] = "false",
+        });
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var task = (Task<string>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal("registration-rejected", await task);
+    }
+
+    [Fact]
     public void AsyncOnlyOwnershipRequiresAnAsyncCapableOwner()
     {
         const string source = """
