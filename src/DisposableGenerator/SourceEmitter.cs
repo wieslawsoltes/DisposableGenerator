@@ -1170,11 +1170,12 @@ internal static class SourceEmitter
         var taskName = "__memberDisposeTask" + memberIndex;
         var writeBackExceptionName = "__writeBackException" + memberIndex;
         var caughtName = "__caughtWriteBackException" + memberIndex;
+        var writeBackValue = taskName + ".GetAwaiter().IsCompleted ? " + valueName + " : default";
         return "{ global::System.Threading.Tasks.ValueTask " + taskName +
             " = default; global::System.Exception? " + writeBackExceptionName + " = null; { var " + valueName +
             " = " + valueExpression + "; try { " + taskName + " = " + invocation +
             "; } catch (global::System.Exception) { try { " + memberAccess + " = " + valueName +
-            "; } catch (global::System.Exception) { } throw; } try { " + memberAccess + " = " + valueName +
+            "; } catch (global::System.Exception) { } throw; } try { " + memberAccess + " = " + writeBackValue +
             "; } catch (global::System.Exception " + caughtName + ") { " + writeBackExceptionName + " = " +
             caughtName + "; } } await " + taskName + ".ConfigureAwait(false); if (" + writeBackExceptionName +
             " is not null) { throw " + writeBackExceptionName + "; } }";

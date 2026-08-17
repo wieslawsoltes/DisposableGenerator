@@ -695,6 +695,60 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
+    public async Task Suspending_async_struct_property_is_cleared_before_await()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<bool> Run()
+                {
+                    var owner = new Owner();
+                    var disposal = owner.DisposeAsync();
+                    await Resource.Started.Task;
+                    var clearedBeforeCompletion = owner.Resource.Handle is null;
+                    Resource.Release.SetResult();
+                    await disposal;
+                    return clearedBeforeCompletion && owner.Resource.Handle is null;
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner
+            {
+                [DisposeMember]
+                public Resource Resource { get; set; } = new Resource(new object());
+            }
+
+            public struct Resource(object handle) : IAsyncDisposable
+            {
+                public static TaskCompletionSource Started { get; } =
+                    new(TaskCreationOptions.RunContinuationsAsynchronously);
+                public static TaskCompletionSource Release { get; } =
+                    new(TaskCreationOptions.RunContinuationsAsynchronously);
+                public object? Handle { get; private set; } = handle;
+
+                public async ValueTask DisposeAsync()
+                {
+                    Started.SetResult();
+                    await Release.Task;
+                    Handle = null;
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains(".GetAwaiter().IsCompleted ? __ownedMember", result.GeneratedSource, StringComparison.Ordinal);
+        var task = (Task<bool>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.True(await task);
+    }
+
+    [Fact]
     public async Task Settable_ref_struct_async_property_does_not_cross_the_await_boundary()
     {
         const string source = """
