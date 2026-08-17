@@ -1089,21 +1089,27 @@ internal static class SourceEmitter
 
     private static string NullableSynchronousDisposal(string memberAccess, int memberIndex)
     {
+        var nullableName = "__nullableSnapshot" + memberIndex;
         var valueName = "__nullableMember" + memberIndex;
         var action = ConstrainedHelperName(allowsRefLike: false, byReference: true, asynchronous: false) +
             "(ref " + valueName + ");";
-        return "if (" + memberAccess + ".HasValue) " +
-            WriteBackDisposal(memberAccess, memberAccess + ".GetValueOrDefault()", valueName, action, memberIndex);
+        return "{ var " + nullableName + " = " + memberAccess + "; if (" + nullableName + ".HasValue) " +
+            WriteBackDisposal(memberAccess, nullableName + ".GetValueOrDefault()", valueName, action, memberIndex) + " }";
     }
 
     private static string NullableAsynchronousDisposal(string memberAccess, int memberIndex)
     {
+        var nullableName = "__nullableSnapshot" + memberIndex;
         var valueName = "__nullableMember" + memberIndex;
-        var action = "await " +
-            ConstrainedHelperName(allowsRefLike: false, byReference: true, asynchronous: true) +
-            "(ref " + valueName + ").ConfigureAwait(false);";
-        return "if (" + memberAccess + ".HasValue) " +
-            WriteBackDisposal(memberAccess, memberAccess + ".GetValueOrDefault()", valueName, action, memberIndex);
+        var invocation = ConstrainedHelperName(allowsRefLike: false, byReference: true, asynchronous: true) +
+            "(ref " + valueName + ")";
+        return "{ var " + nullableName + " = " + memberAccess + "; if (" + nullableName + ".HasValue) " +
+            WriteBackAsynchronousDisposal(
+                memberAccess,
+                nullableName + ".GetValueOrDefault()",
+                valueName,
+                invocation,
+                memberIndex) + " }";
     }
 
     private static string WritableSynchronousDisposal(
@@ -1125,11 +1131,11 @@ internal static class SourceEmitter
         int memberIndex)
     {
         var valueName = "__ownedMember" + memberIndex;
-        var action = "await " + ConstrainedHelperName(
+        var invocation = ConstrainedHelperName(
             member.AllowsRefLikeDisposalDispatch,
             byReference: true,
-            asynchronous: true) + "(ref " + valueName + ").ConfigureAwait(false);";
-        return WriteBackDisposal(memberAccess, memberAccess, valueName, action, memberIndex);
+            asynchronous: true) + "(ref " + valueName + ")";
+        return WriteBackAsynchronousDisposal(memberAccess, memberAccess, valueName, invocation, memberIndex);
     }
 
     private static string WriteBackDisposal(
@@ -1146,6 +1152,26 @@ internal static class SourceEmitter
             exceptionName + " = " + caughtName + "; throw; } finally { if (" + exceptionName + " is null) { " +
             memberAccess + " = " + valueName + "; } else { try { " + memberAccess + " = " + valueName +
             "; } catch (global::System.Exception) { } } } }";
+    }
+
+    private static string WriteBackAsynchronousDisposal(
+        string memberAccess,
+        string valueExpression,
+        string valueName,
+        string invocation,
+        int memberIndex)
+    {
+        var taskName = "__memberDisposeTask" + memberIndex;
+        var writeBackExceptionName = "__writeBackException" + memberIndex;
+        var caughtName = "__caughtWriteBackException" + memberIndex;
+        return "{ global::System.Threading.Tasks.ValueTask " + taskName +
+            " = default; global::System.Exception? " + writeBackExceptionName + " = null; { var " + valueName +
+            " = " + valueExpression + "; try { " + taskName + " = " + invocation +
+            "; } catch (global::System.Exception) { try { " + memberAccess + " = " + valueName +
+            "; } catch (global::System.Exception) { } throw; } try { " + memberAccess + " = " + valueName +
+            "; } catch (global::System.Exception " + caughtName + ") { " + writeBackExceptionName + " = " +
+            caughtName + "; } } await " + taskName + ".ConfigureAwait(false); if (" + writeBackExceptionName +
+            " is not null) { throw " + writeBackExceptionName + "; } }";
     }
 
     private static string ConstrainedHelperName(bool allowsRefLike, bool byReference, bool asynchronous) =>
