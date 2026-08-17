@@ -116,12 +116,18 @@ internal sealed class DisposableTypeModel
 
 internal sealed class OwnedMemberModel
 {
-    internal OwnedMemberModel(ISymbol symbol, int order, bool supportsSynchronousDispose, bool supportsAsynchronousDispose)
+    internal OwnedMemberModel(
+        ISymbol symbol,
+        int order,
+        bool supportsSynchronousDispose,
+        bool supportsAsynchronousDispose,
+        bool isRefLike)
     {
         Symbol = symbol;
         Order = order;
         SupportsSynchronousDispose = supportsSynchronousDispose;
         SupportsAsynchronousDispose = supportsAsynchronousDispose;
+        IsRefLike = isRefLike;
     }
 
     internal ISymbol Symbol { get; }
@@ -131,4 +137,6 @@ internal sealed class OwnedMemberModel
     internal bool SupportsSynchronousDispose { get; }
 
     internal bool SupportsAsynchronousDispose { get; }
+
+    internal bool IsRefLike { get; }
 }

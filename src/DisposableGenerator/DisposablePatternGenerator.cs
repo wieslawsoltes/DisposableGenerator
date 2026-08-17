@@ -527,7 +527,8 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                         member,
                         GetMemberOrder(member),
                         supportsSynchronousDispose,
-                        supportsAsynchronousDispose));
+                        supportsAsynchronousDispose,
+                        memberType.IsRefLikeType));
                 }
             }
         }

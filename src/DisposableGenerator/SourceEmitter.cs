@@ -475,7 +475,13 @@ internal static class SourceEmitter
             }
 
             var member = ownedMember.Symbol;
-            Line(builder, indent, "((global::System.IDisposable?)this." + SymbolHelpers.EscapeIdentifier(member.Name) + ")?.Dispose();");
+            var memberAccess = "this." + SymbolHelpers.EscapeIdentifier(member.Name);
+            Line(
+                builder,
+                indent,
+                ownedMember.IsRefLike
+                    ? memberAccess + ".Dispose();"
+                    : "((global::System.IDisposable?)" + memberAccess + ")?.Dispose();");
         }
 
         if (registeredVariable is not null)
@@ -642,7 +648,9 @@ internal static class SourceEmitter
             EmitAggregateAction(
                 builder,
                 indent,
-                "((global::System.IDisposable?)this." + memberName + ")?.Dispose();",
+                ownedMember.IsRefLike
+                    ? "this." + memberName + ".Dispose();"
+                    : "((global::System.IDisposable?)this." + memberName + ")?.Dispose();",
                 "__exceptions");
         }
 
@@ -896,7 +904,11 @@ internal static class SourceEmitter
         {
             var ownedMember = model.Members[memberIndex];
             var memberName = SymbolHelpers.EscapeIdentifier(ownedMember.Symbol.Name);
-            var statement = ownedMember.SupportsAsynchronousDispose
+            var statement = ownedMember.IsRefLike && ownedMember.SupportsAsynchronousDispose
+                ? "await this." + memberName + ".DisposeAsync().ConfigureAwait(false);"
+                : ownedMember.IsRefLike
+                    ? "this." + memberName + ".Dispose();"
+                    : ownedMember.SupportsAsynchronousDispose
                 ? "if (this." + memberName + " is global::System.IAsyncDisposable __asyncMember" + memberIndex + ") " +
                   "{ await __asyncMember" + memberIndex + ".DisposeAsync().ConfigureAwait(false); }"
                 : "((global::System.IDisposable?)this." + memberName + ")?.Dispose();";

@@ -5,6 +5,89 @@ namespace DisposableGenerator.Tests;
 public sealed class AsyncAndUnmanagedBehaviorTests
 {
     [Fact]
+    public void Ref_struct_disposable_property_uses_non_boxing_sync_call()
+    {
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static string Run()
+                {
+                    var events = new List<string>();
+                    new Owner(events).Dispose();
+                    return string.Join(",", events);
+                }
+            }
+
+            [GenerateDisposable]
+            public sealed partial class Owner(List<string> events)
+            {
+                [DisposeMember]
+                public Resource Resource => new(events);
+            }
+
+            public ref struct Resource(List<string> events) : IDisposable
+            {
+                public void Dispose() => events.Add("disposed");
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("this.Resource.Dispose();", result.GeneratedSource, StringComparison.Ordinal);
+        var value = (string)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal("disposed", value);
+    }
+
+    [Fact]
+    public async Task Ref_struct_async_disposable_property_uses_non_boxing_async_call()
+    {
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<string> Run()
+                {
+                    var events = new List<string>();
+                    await new Owner(events).DisposeAsync();
+                    return string.Join(",", events);
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner(List<string> events)
+            {
+                [DisposeMember]
+                public Resource Resource => new(events);
+            }
+
+            public ref struct Resource(List<string> events) : IAsyncDisposable
+            {
+                public ValueTask DisposeAsync()
+                {
+                    events.Add("disposed-async");
+                    return default;
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("await this.Resource.DisposeAsync().ConfigureAwait(false);", result.GeneratedSource, StringComparison.Ordinal);
+        var task = (Task<string>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal("disposed-async", await task);
+    }
+
+    [Fact]
     public async Task AsyncOnlyOwnerDisposesMembersRegistrationsAndHooksInOrder()
     {
         const string source = """
