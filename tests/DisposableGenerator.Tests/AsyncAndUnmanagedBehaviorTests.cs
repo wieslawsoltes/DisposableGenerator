@@ -185,6 +185,93 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
+    public void Ref_like_permitting_type_parameter_uses_constrained_sync_dispatch()
+    {
+        const string source = """
+            using System;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static int Run()
+                {
+                    Resource.DisposeCount = 0;
+                    new Owner<Resource>().Dispose();
+                    return Resource.DisposeCount;
+                }
+            }
+
+            [GenerateDisposable]
+            public sealed partial class Owner<T>
+                where T : IDisposable, allows ref struct
+            {
+                [DisposeMember]
+                public T Resource => default!;
+            }
+
+            public ref struct Resource : IDisposable
+            {
+                public static int DisposeCount;
+
+                void IDisposable.Dispose() => DisposeCount++;
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("__DisposeRefLike(this.Resource);", result.GeneratedSource, StringComparison.Ordinal);
+        var value = (int)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal(1, value);
+    }
+
+    [Fact]
+    public async Task Ref_like_permitting_type_parameter_uses_constrained_async_dispatch()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<int> Run()
+                {
+                    Resource.DisposeCount = 0;
+                    await new Owner<Resource>().DisposeAsync();
+                    return Resource.DisposeCount;
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner<T>
+                where T : IAsyncDisposable, allows ref struct
+            {
+                [DisposeMember]
+                public T Resource => default!;
+            }
+
+            public ref struct Resource : IAsyncDisposable
+            {
+                public static int DisposeCount;
+
+                ValueTask IAsyncDisposable.DisposeAsync()
+                {
+                    DisposeCount++;
+                    return default;
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("await __DisposeRefLikeAsync(this.Resource).ConfigureAwait(false);", result.GeneratedSource, StringComparison.Ordinal);
+        var task = (Task<int>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal(1, await task);
+    }
+
+    [Fact]
     public async Task AsyncOnlyOwnerDisposesMembersRegistrationsAndHooksInOrder()
     {
         const string source = """

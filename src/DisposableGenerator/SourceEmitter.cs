@@ -466,7 +466,7 @@ internal static class SourceEmitter
             Line(builder, indent, "OnDisposing();");
         }
 
-        if (model.Members.Any(member => member.IsRefLike && member.SupportsSynchronousDispose))
+        if (model.Members.Any(member => member.RequiresConstrainedDisposalDispatch && member.SupportsSynchronousDispose))
         {
             Line(builder, indent);
             Line(builder, indent, "static void __DisposeRefLike<TDisposable>(TDisposable disposable)");
@@ -487,7 +487,7 @@ internal static class SourceEmitter
             Line(
                 builder,
                 indent,
-                ownedMember.IsRefLike
+                ownedMember.RequiresConstrainedDisposalDispatch
                     ? "__DisposeRefLike(" + memberAccess + ");"
                     : "((global::System.IDisposable?)" + memberAccess + ")?.Dispose();");
         }
@@ -645,7 +645,7 @@ internal static class SourceEmitter
             EmitAggregateAction(builder, indent, "OnDisposing();", "__exceptions");
         }
 
-        if (model.Members.Any(member => member.IsRefLike && member.SupportsSynchronousDispose))
+        if (model.Members.Any(member => member.RequiresConstrainedDisposalDispatch && member.SupportsSynchronousDispose))
         {
             Line(builder, indent, "static void __DisposeRefLike<TDisposable>(TDisposable disposable)");
             Line(builder, indent + 1, "where TDisposable : global::System.IDisposable, allows ref struct");
@@ -663,7 +663,7 @@ internal static class SourceEmitter
             EmitAggregateAction(
                 builder,
                 indent,
-                ownedMember.IsRefLike
+                ownedMember.RequiresConstrainedDisposalDispatch
                     ? "__DisposeRefLike(this." + memberName + ");"
                     : "((global::System.IDisposable?)this." + memberName + ")?.Dispose();",
                 "__exceptions");
@@ -915,14 +915,14 @@ internal static class SourceEmitter
             EmitMaybeAggregateAction(builder, indent, "OnDisposing();", aggregate);
         }
 
-        if (model.Members.Any(member => member.IsRefLike && member.SupportsSynchronousDispose))
+        if (model.Members.Any(member => member.RequiresConstrainedDisposalDispatch && member.SupportsSynchronousDispose))
         {
             Line(builder, indent, "static void __DisposeRefLike<TDisposable>(TDisposable disposable)");
             Line(builder, indent + 1, "where TDisposable : global::System.IDisposable, allows ref struct");
             Line(builder, indent + 1, "=> disposable.Dispose();");
         }
 
-        if (model.Members.Any(member => member.IsRefLike && member.SupportsAsynchronousDispose))
+        if (model.Members.Any(member => member.RequiresConstrainedDisposalDispatch && member.SupportsAsynchronousDispose))
         {
             Line(builder, indent, "static global::System.Threading.Tasks.ValueTask __DisposeRefLikeAsync<TDisposable>(TDisposable disposable)");
             Line(builder, indent + 1, "where TDisposable : global::System.IAsyncDisposable, allows ref struct");
@@ -933,9 +933,9 @@ internal static class SourceEmitter
         {
             var ownedMember = model.Members[memberIndex];
             var memberName = SymbolHelpers.EscapeIdentifier(ownedMember.Symbol.Name);
-            var statement = ownedMember.IsRefLike && ownedMember.SupportsAsynchronousDispose
+            var statement = ownedMember.RequiresConstrainedDisposalDispatch && ownedMember.SupportsAsynchronousDispose
                 ? "await __DisposeRefLikeAsync(this." + memberName + ").ConfigureAwait(false);"
-                : ownedMember.IsRefLike
+                : ownedMember.RequiresConstrainedDisposalDispatch
                     ? "__DisposeRefLike(this." + memberName + ");"
                     : ownedMember.SupportsAsynchronousDispose
                 ? "if (this." + memberName + " is global::System.IAsyncDisposable __asyncMember" + memberIndex + ") " +

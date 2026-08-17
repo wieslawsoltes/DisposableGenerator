@@ -121,13 +121,13 @@ internal sealed class OwnedMemberModel
         int order,
         bool supportsSynchronousDispose,
         bool supportsAsynchronousDispose,
-        bool isRefLike)
+        bool requiresConstrainedDisposalDispatch)
     {
         Symbol = symbol;
         Order = order;
         SupportsSynchronousDispose = supportsSynchronousDispose;
         SupportsAsynchronousDispose = supportsAsynchronousDispose;
-        IsRefLike = isRefLike;
+        RequiresConstrainedDisposalDispatch = requiresConstrainedDisposalDispatch;
     }
 
     internal ISymbol Symbol { get; }
@@ -138,5 +138,5 @@ internal sealed class OwnedMemberModel
 
     internal bool SupportsAsynchronousDispose { get; }
 
-    internal bool IsRefLike { get; }
+    internal bool RequiresConstrainedDisposalDispatch { get; }
 }

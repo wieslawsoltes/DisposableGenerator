@@ -31,11 +31,39 @@ internal static class SymbolHelpers
             reference.GetSyntax() is TypeDeclarationSyntax declaration &&
             declaration.Modifiers.Any(SyntaxKind.FileKeyword));
 
+    internal static bool RequiresConstrainedDisposalDispatch(this ITypeSymbol type)
+    {
+        if (type.IsRefLikeType)
+        {
+            return true;
+        }
+
+        if (type is not ITypeParameterSymbol typeParameter ||
+            typeParameter.ContainingSymbol is not INamedTypeSymbol containingType)
+        {
+            return false;
+        }
+
+        return containingType.DeclaringSyntaxReferences.Any(reference =>
+            reference.GetSyntax() is TypeDeclarationSyntax declaration &&
+            declaration.ConstraintClauses.Any(clause =>
+                clause.Name.Identifier.ValueText == typeParameter.Name &&
+                clause.Constraints.Any(constraint =>
+                    constraint.DescendantTokens().Select(token => token.ValueText).SequenceEqual(
+                        new[] { "allows", "ref", "struct" }))));
+    }
+
     internal static bool IsDisposable(
         this ITypeSymbol type,
         Func<INamedTypeSymbol, bool>? generationAvailable = null)
     {
         if (type.SpecialType == SpecialType.System_IDisposable)
+        {
+            return true;
+        }
+
+        if (type is ITypeParameterSymbol typeParameter &&
+            typeParameter.ConstraintTypes.Any(constraint => constraint.IsDisposable(generationAvailable)))
         {
             return true;
         }
@@ -69,6 +97,12 @@ internal static class SymbolHelpers
         Func<INamedTypeSymbol, bool>? generationAvailable = null)
     {
         if (IsAsyncDisposableInterface(type))
+        {
+            return true;
+        }
+
+        if (type is ITypeParameterSymbol typeParameter &&
+            typeParameter.ConstraintTypes.Any(constraint => constraint.IsAsyncDisposable(generationAvailable)))
         {
             return true;
         }
