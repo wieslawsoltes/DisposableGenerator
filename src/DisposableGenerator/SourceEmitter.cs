@@ -645,6 +645,13 @@ internal static class SourceEmitter
             EmitAggregateAction(builder, indent, "OnDisposing();", "__exceptions");
         }
 
+        if (model.Members.Any(member => member.IsRefLike && member.SupportsSynchronousDispose))
+        {
+            Line(builder, indent, "static void __DisposeRefLike<TDisposable>(TDisposable disposable)");
+            Line(builder, indent + 1, "where TDisposable : global::System.IDisposable, allows ref struct");
+            Line(builder, indent + 1, "=> disposable.Dispose();");
+        }
+
         foreach (var ownedMember in model.Members)
         {
             if (!ownedMember.SupportsSynchronousDispose)
@@ -657,7 +664,7 @@ internal static class SourceEmitter
                 builder,
                 indent,
                 ownedMember.IsRefLike
-                    ? "this." + memberName + ".Dispose();"
+                    ? "__DisposeRefLike(this." + memberName + ");"
                     : "((global::System.IDisposable?)this." + memberName + ")?.Dispose();",
                 "__exceptions");
         }

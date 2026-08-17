@@ -125,6 +125,18 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         Assert.Contains("__DisposeRefLike(this.Resource);", result.GeneratedSource, StringComparison.Ordinal);
         var value = (string)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.Equal("disposed-explicitly", value);
+
+        var aggregateResult = GeneratorTestHarness.Run(
+            source,
+            new Dictionary<string, string>
+            {
+                ["DisposableGenerator_DisposalExceptionBehavior"] = "ContinueAndAggregate",
+            });
+
+        Assert.DoesNotContain(aggregateResult.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("__DisposeRefLike(this.Resource);", aggregateResult.GeneratedSource, StringComparison.Ordinal);
+        var aggregateValue = (string)aggregateResult.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal("disposed-explicitly", aggregateValue);
     }
 
     [Fact]
