@@ -31,6 +31,7 @@ internal static class SourceEmitter
         }
 
         var interfaceClause = model.HasGeneratedBase ? string.Empty : InterfaceClause(model);
+        Line(builder, indent, "[global::DisposableGenerator.GeneratedDisposableAttribute]");
         Line(builder, indent, SymbolHelpers.PartialDeclarationPrefix(model.Type) + " " + SymbolHelpers.TypeDeclarationName(model.Type) + interfaceClause);
         Line(builder, indent, "{");
         indent++;

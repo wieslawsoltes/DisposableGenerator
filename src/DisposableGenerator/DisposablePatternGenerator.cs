@@ -29,8 +29,8 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             static (attributeContext, _) => (INamedTypeSymbol)attributeContext.TargetSymbol);
 
         context.RegisterSourceOutput(
-            generatedTypes.Combine(options).Combine(context.CompilationProvider),
-            static (output, item) => GenerateType(output, item.Left.Left, item.Left.Right, item.Right));
+            generatedTypes.Collect().Combine(options).Combine(context.CompilationProvider),
+            static (output, item) => GenerateTypes(output, item.Left.Left, item.Left.Right, item.Right));
 
         var ownedMembers = context.SyntaxProvider.ForAttributeWithMetadataName(
             SymbolHelpers.DisposeMemberAttributeName,
@@ -64,7 +64,55 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateType(SourceProductionContext context, INamedTypeSymbol type, GeneratorOptions options, Compilation compilation)
+    private static void GenerateTypes(
+        SourceProductionContext context,
+        ImmutableArray<INamedTypeSymbol> types,
+        GeneratorOptions options,
+        Compilation compilation)
+    {
+        var candidateSet = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        var distinctCandidates = new List<INamedTypeSymbol>();
+        foreach (var type in types)
+        {
+            var definition = type.OriginalDefinition;
+            if (candidateSet.Add(definition))
+            {
+                distinctCandidates.Add(definition);
+            }
+        }
+
+        var candidates = distinctCandidates
+            .OrderBy(InheritanceDepth)
+            .ToArray();
+        var generatedTypes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+
+        foreach (var type in candidates)
+        {
+            if (GenerateType(context, type, options, compilation, candidateSet, generatedTypes))
+            {
+                generatedTypes.Add(type);
+            }
+        }
+    }
+
+    private static int InheritanceDepth(INamedTypeSymbol type)
+    {
+        var depth = 0;
+        for (var current = type.BaseType; current is not null; current = current.BaseType)
+        {
+            depth++;
+        }
+
+        return depth;
+    }
+
+    private static bool GenerateType(
+        SourceProductionContext context,
+        INamedTypeSymbol type,
+        GeneratorOptions options,
+        Compilation compilation,
+        HashSet<INamedTypeSymbol> candidates,
+        HashSet<INamedTypeSymbol> generatedTypes)
     {
         if (type.TypeKind != TypeKind.Class || type.IsStatic || type.IsRecord)
         {
@@ -72,7 +120,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 DiagnosticDescriptors.UnsupportedType,
                 type.BestLocation(),
                 type.ToDisplayString()));
-            return;
+            return false;
         }
 
         var generationAttribute = type.GetAttribute(SymbolHelpers.GenerateDisposableAttributeName)!;
@@ -87,7 +135,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 DiagnosticDescriptors.InvalidGenerationMode,
                 type.BestLocation(),
                 type.ToDisplayString()));
-            return;
+            return false;
         }
 
         var asyncDisposableInterface = compilation.GetTypeByMetadataName("System.IAsyncDisposable");
@@ -97,7 +145,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 DiagnosticDescriptors.AsyncDisposeUnavailable,
                 type.BestLocation(),
                 type.ToDisplayString()));
-            return;
+            return false;
         }
 
         if (!type.IsPartial() || SymbolHelpers.ContainingTypesOuterFirst(type).Any(containing => !containing.IsPartial()))
@@ -106,7 +154,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 DiagnosticDescriptors.TypeMustBePartial,
                 type.BestLocation(),
                 type.ToDisplayString()));
-            return;
+            return false;
         }
 
         if (type.IsFileLocal() || SymbolHelpers.ContainingTypesOuterFirst(type).Any(SymbolHelpers.IsFileLocal))
@@ -115,7 +163,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 DiagnosticDescriptors.FileLocalTypeUnsupported,
                 type.BestLocation(),
                 type.ToDisplayString()));
-            return;
+            return false;
         }
 
         if (DeclaresDisposalMethod(type))
@@ -124,7 +172,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 DiagnosticDescriptors.ManualDisposeImplementation,
                 type.BestLocation(),
                 type.ToDisplayString()));
-            return;
+            return false;
         }
 
         if (type.GetMembers().OfType<IMethodSymbol>().Any(method => method.MethodKind == MethodKind.Destructor))
@@ -133,13 +181,18 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 DiagnosticDescriptors.FinalizerUnsupported,
                 type.BestLocation(),
                 type.ToDisplayString()));
-            return;
+            return false;
         }
 
         var generatedBase = FindGeneratedBase(type);
         var hasGeneratedBase = generatedBase is not null;
         if (generatedBase is not null)
         {
+            if (!IsAvailableGeneratedBase(generatedBase, candidates, generatedTypes))
+            {
+                return false;
+            }
+
             var baseAttribute = generatedBase.GetAttribute(SymbolHelpers.GenerateDisposableAttributeName)!;
             if (generateSynchronousDispose != baseAttribute.GetNamedBoolean("GenerateSynchronousDispose", defaultValue: true) ||
                 generateAsyncDispose != baseAttribute.GetNamedBoolean("GenerateAsyncDispose"))
@@ -148,7 +201,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                     DiagnosticDescriptors.AsyncGenerationMismatch,
                     type.BestLocation(),
                     type.ToDisplayString()));
-                return;
+                return false;
             }
         }
 
@@ -159,7 +212,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 DiagnosticDescriptors.UnsupportedDisposableBase,
                 type.BestLocation(),
                 type.ToDisplayString()));
-            return;
+            return false;
         }
 
         if (!hasGeneratedBase &&
@@ -170,7 +223,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 DiagnosticDescriptors.UnsupportedAsyncDisposableBase,
                 type.BestLocation(),
                 type.ToDisplayString()));
-            return;
+            return false;
         }
 
         if (generateSynchronousDispose && !hasGeneratedBase && HasUnsupportedBaseDisposeHook(type, compilation))
@@ -179,7 +232,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 DiagnosticDescriptors.UnsupportedBaseDisposeHook,
                 type.BestLocation(),
                 type.ToDisplayString()));
-            return;
+            return false;
         }
 
         if (ReportGeneratedMemberCollisions(
@@ -192,7 +245,7 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 options,
                 compilation))
         {
-            return;
+            return false;
         }
 
         var members = GetValidOwnedMembers(type, disposableInterface, asyncDisposableInterface, generateAsyncDispose);
@@ -215,7 +268,60 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
             generateFinalizer,
             options);
         context.AddSource(HintName(type), SourceText.From(SourceEmitter.Emit(model), Encoding.UTF8));
+        return true;
     }
+
+    private static bool IsAvailableGeneratedBase(
+        INamedTypeSymbol generatedBase,
+        HashSet<INamedTypeSymbol> candidates,
+        HashSet<INamedTypeSymbol> generatedTypes)
+    {
+        var definition = generatedBase.OriginalDefinition;
+        if (candidates.Contains(definition))
+        {
+            return generatedTypes.Contains(definition);
+        }
+
+        if (definition.DeclaringSyntaxReferences.Length > 0)
+        {
+            return false;
+        }
+
+        return definition.HasAttribute(SymbolHelpers.GeneratedDisposableAttributeName) ||
+               HasExpectedGeneratedCoreMethods(generatedBase);
+    }
+
+    private static bool HasExpectedGeneratedCoreMethods(INamedTypeSymbol type)
+    {
+        var generationAttribute = type.GetAttribute(SymbolHelpers.GenerateDisposableAttributeName);
+        if (generationAttribute is null)
+        {
+            return false;
+        }
+
+        var generatesSynchronousDispose = generationAttribute.GetNamedBoolean("GenerateSynchronousDispose", defaultValue: true);
+        var generatesAsyncDispose = generationAttribute.GetNamedBoolean("GenerateAsyncDispose");
+        return (!generatesSynchronousDispose || type.GetMembers("Dispose").OfType<IMethodSymbol>().Any(method =>
+                   !method.IsStatic &&
+                   method.Arity == 0 &&
+                   method.ReturnsVoid &&
+                   method.Parameters.Length == 1 &&
+                   method.Parameters[0].Type.SpecialType == SpecialType.System_Boolean &&
+                   IsOverridableGeneratedCore(method))) &&
+               (!generatesAsyncDispose || type.GetMembers("DisposeAsyncCore").OfType<IMethodSymbol>().Any(method =>
+                   !method.IsStatic &&
+                   method.Arity == 0 &&
+                   method.Parameters.Length == 0 &&
+                   method.ReturnType.ToDisplayString() == "System.Threading.Tasks.ValueTask" &&
+                   IsOverridableGeneratedCore(method)));
+    }
+
+    private static bool IsOverridableGeneratedCore(IMethodSymbol method) =>
+        (method.IsVirtual || method.IsOverride || method.IsAbstract) &&
+        !method.IsSealed &&
+        method.DeclaredAccessibility is Accessibility.Public or
+            Accessibility.Protected or
+            Accessibility.ProtectedOrInternal;
 
     private static void ReportImplicitOwnedBackingFields(SourceProductionContext context, INamedTypeSymbol type)
     {

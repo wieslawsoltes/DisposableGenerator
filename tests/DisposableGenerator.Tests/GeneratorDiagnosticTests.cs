@@ -206,6 +206,26 @@ public sealed class GeneratorDiagnosticTests
         Assert.Contains(generatedDeclaration, result.GeneratedSource);
     }
 
+    [Theory]
+    [InlineData("out")]
+    [InlineData("in")]
+    public void Variant_containing_interface_is_reopened_with_matching_variance(string variance)
+    {
+        var source = $$"""
+            using DisposableGenerator;
+            public partial interface Outer<{{variance}} T>
+            {
+                [GenerateDisposable]
+                public sealed partial class Owner { }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains($"partial interface Outer<{variance} T>", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS0264");
+    }
+
     [Fact]
     public void CSharp14_field_backed_property_can_be_owned()
     {
@@ -353,6 +373,48 @@ public sealed class GeneratorDiagnosticTests
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
         Assert.Contains("protected override void Dispose(bool disposing)", result.GeneratedSource);
+    }
+
+    [Fact]
+    public void Valid_generated_base_is_recognized_regardless_of_declaration_order()
+    {
+        const string source = """
+            using DisposableGenerator;
+
+            [GenerateDisposable]
+            public sealed partial class Owner : BaseOwner { }
+
+            [GenerateDisposable]
+            public partial class BaseOwner { }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("protected override void Dispose(bool disposing)", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("public class InvalidBase { }", "DISP001")]
+    [InlineData("public partial class InvalidBase { public void Dispose() { } }", "DISP005")]
+    [InlineData("public partial class InvalidBase { private int __DisposableGenerator_disposeState; }", "DISP012")]
+    public void Invalid_attributed_base_prevents_derived_override_emission(string baseDeclaration, string diagnosticId)
+    {
+        var source = $$"""
+            using DisposableGenerator;
+
+            [GenerateDisposable]
+            public sealed partial class Owner : InvalidBase { }
+
+            [GenerateDisposable]
+            {{baseDeclaration}}
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == diagnosticId);
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS0115");
+        Assert.DoesNotContain("partial class Owner", result.GeneratedSource, StringComparison.Ordinal);
     }
 
     [Fact]

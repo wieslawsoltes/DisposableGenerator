@@ -10,6 +10,7 @@ namespace DisposableGenerator;
 internal static class SymbolHelpers
 {
     internal const string GenerateDisposableAttributeName = "DisposableGenerator.GenerateDisposableAttribute";
+    internal const string GeneratedDisposableAttributeName = "DisposableGenerator.GeneratedDisposableAttribute";
     internal const string DisposeMemberAttributeName = "DisposableGenerator.DisposeMemberAttribute";
     internal const string BorrowedMemberAttributeName = "DisposableGenerator.BorrowedMemberAttribute";
 
@@ -124,7 +125,18 @@ internal static class SymbolHelpers
             return typeName;
         }
 
-        return typeName + "<" + string.Join(", ", type.TypeParameters.Select(parameter => EscapeIdentifier(parameter.Name))) + ">";
+        return typeName + "<" + string.Join(", ", type.TypeParameters.Select(TypeParameterDeclarationName)) + ">";
+    }
+
+    private static string TypeParameterDeclarationName(ITypeParameterSymbol parameter)
+    {
+        var variance = parameter.Variance switch
+        {
+            VarianceKind.In => "in ",
+            VarianceKind.Out => "out ",
+            _ => string.Empty,
+        };
+        return variance + EscapeIdentifier(parameter.Name);
     }
 
     internal static string NamespaceName(INamespaceSymbol namespaceSymbol)
