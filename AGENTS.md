@@ -70,7 +70,7 @@ The package must remain analyzer-only: consumers receive generated source and in
 
 ## Diagnostics and configuration
 
-- Diagnostics `DISP001` through `DISP025`, their default severities, locations, and meanings are public analyzer behavior. Add or change diagnostics only with matching descriptor, analyzer release notes, unit tests, README/configuration documentation, and package integration coverage where applicable.
+- Diagnostics `DISP001` through `DISP026`, their default severities, locations, and meanings are public analyzer behavior. Add or change diagnostics only with matching descriptor, analyzer release notes, unit tests, README/configuration documentation, and package integration coverage where applicable.
 - Report actionable diagnostics instead of emitting uncompilable or ambiguous source. Invalid MSBuild values report `DISP009` and fall back to the documented default.
 - Keep `buildTransitive/DisposableGenerator.props`, option parsing, README tables, `docs/configuration.md`, tests, and package-consumer tests synchronized for every option.
 - Standard `.editorconfig`, `NoWarn`, and pragma severity controls must continue to work, but project-wide ownership configuration must not replace explicit annotations in repository examples or tests.

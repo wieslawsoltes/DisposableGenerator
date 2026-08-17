@@ -224,6 +224,7 @@ Invalid settings report `DISP009` and use the documented fallback.
 | `DISP023` | Error | A root has a non-generated `IAsyncDisposable` base contract. |
 | `DISP024` | Error | `DisposeUnmanaged()` does not use the supported partial implementation signature. |
 | `DISP025` | Error | No disposal interface is enabled, or finalization was requested without synchronous generation. |
+| `DISP026` | Error | A generated inheritance chain uses inconsistent finalizer modes. |
 
 Standard `.editorconfig`, `NoWarn`, and `#pragma warning` controls work for diagnostic severity and intentional suppressions.
 

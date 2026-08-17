@@ -209,4 +209,12 @@ internal static class DiagnosticDescriptors
         Category,
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    internal static readonly DiagnosticDescriptor FinalizerGenerationMismatch = new(
+        "DISP026",
+        "Generated disposal hierarchy has inconsistent finalization modes",
+        "Type '{0}' and its generated base type must use the same finalizer generation setting",
+        Category,
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

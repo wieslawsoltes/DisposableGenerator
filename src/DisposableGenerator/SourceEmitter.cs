@@ -1386,7 +1386,7 @@ internal static class SourceEmitter
         member.Symbol is IPropertySymbol { RefKind: RefKind.Ref };
 
     private static bool UsesNullableStorageHelper(OwnedMemberModel member) =>
-        member.Symbol is IPropertySymbol { RefKind: RefKind.Ref };
+        CanDisposeByReference(member);
 
     private static bool CanWriteBack(OwnedMemberModel member) =>
         member.Symbol is IPropertySymbol

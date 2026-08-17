@@ -523,7 +523,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
-    public void Mutable_nullable_struct_field_preserves_sync_disposal_mutation()
+    public void Mutable_nullable_struct_field_is_detached_before_sync_disposal()
     {
         const string source = """
             using System;
@@ -535,7 +535,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
                 {
                     var owner = new Owner();
                     owner.Dispose();
-                    return owner.Resource!.Value.Disposed;
+                    return !owner.Resource.HasValue;
                 }
             }
 
@@ -557,13 +557,13 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-        Assert.Contains("this.Resource = __nullableMember0", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("__DisposeNullableConstrainedByRef(ref this.Resource)", result.GeneratedSource, StringComparison.Ordinal);
         var value = (bool)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.True(value);
     }
 
     [Fact]
-    public async Task Mutable_nullable_struct_field_preserves_async_disposal_mutation()
+    public async Task Mutable_nullable_struct_field_is_detached_before_async_disposal()
     {
         const string source = """
             using System;
@@ -576,7 +576,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
                 {
                     var owner = new Owner();
                     await owner.DisposeAsync();
-                    return owner.Resource!.Value.Disposed;
+                    return !owner.Resource.HasValue;
                 }
             }
 
@@ -602,7 +602,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-        Assert.Contains("this.Resource = __nullableMember0", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("__DisposeNullableConstrainedByRefAsync(ref this.Resource)", result.GeneratedSource, StringComparison.Ordinal);
         var task = (Task<bool>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.True(await task);
     }
@@ -2211,6 +2211,25 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source);
 
         Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP021");
+    }
+
+    [Theory]
+    [InlineData("GenerateUnmanagedCleanup = true", "GenerateFinalizer = true")]
+    [InlineData("GenerateFinalizer = true", "GenerateUnmanagedCleanup = true")]
+    public void GeneratedHierarchyMustUseTheSameFinalizerMode(string baseMode, string derivedMode)
+    {
+        var source = $$"""
+            using DisposableGenerator;
+            [GenerateDisposable({{baseMode}})]
+            public partial class BaseOwner { }
+            [GenerateDisposable({{derivedMode}})]
+            public sealed partial class Owner : BaseOwner { }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP026");
+        Assert.DoesNotContain("partial class Owner :", result.GeneratedSource, StringComparison.Ordinal);
     }
 
     [Fact]

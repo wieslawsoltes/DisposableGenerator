@@ -236,6 +236,15 @@ public sealed class DisposablePatternGenerator : IIncrementalGenerator
                 return false;
             }
 
+            if (generateFinalizer != baseAttribute.GetNamedBoolean("GenerateFinalizer"))
+            {
+                reportDiagnostic?.Invoke(Diagnostic.Create(
+                    DiagnosticDescriptors.FinalizerGenerationMismatch,
+                    type.BestLocation(),
+                    type.ToDisplayString()));
+                return false;
+            }
+
             if (generatedBase.DeclaringSyntaxReferences.Length == 0)
             {
                 var generatedMarker = generatedBase.GetAttribute(SymbolHelpers.GeneratedDisposableAttributeName);

@@ -28,3 +28,4 @@ DISP022 | DisposableGenerator | Warning | Dispose cannot release an async-only o
 DISP023 | DisposableGenerator | Error | Non-generated IAsyncDisposable base types are unsupported
 DISP024 | DisposableGenerator | Error | Unmanaged cleanup hooks must use the supported partial implementation signature
 DISP025 | DisposableGenerator | Error | Generation must enable a disposal interface and finalization requires synchronous generation
+DISP026 | DisposableGenerator | Error | Generated inheritance must use consistent finalizer generation modes
