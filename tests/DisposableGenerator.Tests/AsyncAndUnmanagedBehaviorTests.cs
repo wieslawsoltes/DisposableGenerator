@@ -517,7 +517,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-        Assert.Contains("this.Resource = default", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("disposable = default", result.GeneratedSource, StringComparison.Ordinal);
         var task = (Task<bool>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.True(await task);
     }
@@ -608,7 +608,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
-    public void Settable_struct_properties_preserve_sync_disposal_mutations()
+    public void Settable_struct_properties_are_detached_before_sync_disposal()
     {
         const string source = """
             using System;
@@ -620,7 +620,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
                 {
                     var owner = new Owner();
                     owner.Dispose();
-                    return owner.Resource.Disposed + "," + owner.NullableResource!.Value.Disposed;
+                    return owner.Resource.Disposed + "," + owner.NullableResource.HasValue;
                 }
             }
 
@@ -645,14 +645,62 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-        Assert.Contains("this.Resource = __ownedMember", result.GeneratedSource, StringComparison.Ordinal);
-        Assert.Contains("this.NullableResource = __nullableMember", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("this.Resource = default", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("this.NullableResource = default", result.GeneratedSource, StringComparison.Ordinal);
         var value = (string)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
-        Assert.Equal("True,True", value);
+        Assert.Equal("False,False", value);
     }
 
     [Fact]
-    public async Task Settable_struct_property_preserves_async_disposal_mutation()
+    public void Struct_property_writeback_does_not_overwrite_a_reentrant_replacement()
+    {
+        const string source = """
+            using System;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static int Run()
+                {
+                    var owner = new Owner();
+                    owner.Dispose();
+                    return owner.Resource.Id;
+                }
+            }
+
+            [GenerateDisposable]
+            public sealed partial class Owner
+            {
+                public Owner() => Resource = new Resource(this, 1, replaceOwnerValue: true);
+
+                [DisposeMember]
+                public Resource Resource { get; set; }
+            }
+
+            public struct Resource(Owner owner, int id, bool replaceOwnerValue) : IDisposable
+            {
+                public int Id { get; } = id;
+
+                public void Dispose()
+                {
+                    if (replaceOwnerValue)
+                    {
+                        owner.Resource = new Resource(owner, 2, replaceOwnerValue: false);
+                    }
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("this.Resource = default", result.GeneratedSource, StringComparison.Ordinal);
+        var value = (int)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal(2, value);
+    }
+
+    [Fact]
+    public async Task Settable_struct_property_is_detached_before_async_disposal()
     {
         const string source = """
             using System;
@@ -665,7 +713,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
                 {
                     var owner = new Owner();
                     await owner.DisposeAsync();
-                    return owner.Resource.Disposed;
+                    return !owner.Resource.Disposed;
                 }
             }
 
@@ -691,7 +739,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-        Assert.Contains("this.Resource = __ownedMember", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("this.Resource = default", result.GeneratedSource, StringComparison.Ordinal);
         var task = (Task<bool>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.True(await task);
     }
@@ -749,6 +797,66 @@ public sealed class AsyncAndUnmanagedBehaviorTests
     }
 
     [Fact]
+    public async Task Async_struct_property_writeback_does_not_overwrite_a_reentrant_replacement()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<int> Run()
+                {
+                    var owner = new Owner();
+                    var disposal = owner.DisposeAsync();
+                    await Resource.Started.Task;
+                    var idDuringCleanup = owner.Resource.Id;
+                    Resource.Release.SetResult();
+                    await disposal;
+                    return idDuringCleanup == 2 ? owner.Resource.Id : -1;
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner
+            {
+                public Owner() => Resource = new Resource(this, 1, replaceOwnerValue: true);
+
+                [DisposeMember]
+                public Resource Resource { get; set; }
+            }
+
+            public struct Resource(Owner owner, int id, bool replaceOwnerValue) : IAsyncDisposable
+            {
+                public static TaskCompletionSource Started { get; } =
+                    new(TaskCreationOptions.RunContinuationsAsynchronously);
+                public static TaskCompletionSource Release { get; } =
+                    new(TaskCreationOptions.RunContinuationsAsynchronously);
+                public int Id { get; } = id;
+
+                public ValueTask DisposeAsync()
+                {
+                    if (replaceOwnerValue)
+                    {
+                        owner.Resource = new Resource(owner, 2, replaceOwnerValue: false);
+                    }
+
+                    Started.SetResult();
+                    return new ValueTask(Release.Task);
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("this.Resource = default", result.GeneratedSource, StringComparison.Ordinal);
+        var task = (Task<int>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal(2, await task);
+    }
+
+    [Fact]
     public async Task Suspending_async_struct_property_is_cleared_before_await()
     {
         const string source = """
@@ -797,7 +905,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
         var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-        Assert.Contains(".GetAwaiter().IsCompleted ? __ownedMember", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("this.Resource = default", result.GeneratedSource, StringComparison.Ordinal);
         var task = (Task<bool>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.True(await task);
     }
@@ -854,9 +962,150 @@ public sealed class AsyncAndUnmanagedBehaviorTests
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
         Assert.Contains("__DisposeConstrainedByRefAsync(ref this.Resource)", result.GeneratedSource, StringComparison.Ordinal);
-        Assert.Contains("this.Resource = default", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.Contains("disposable = default", result.GeneratedSource, StringComparison.Ordinal);
         var task = (Task<bool>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
         Assert.True(await task);
+    }
+
+    [Fact]
+    public async Task Async_struct_ref_return_property_uses_one_storage_location()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<bool> Run()
+                {
+                    var owner = new Owner();
+                    var disposal = owner.DisposeAsync();
+                    await Resource.Started.Task;
+                    var correctStorageCleared = owner.First.Handle is null && owner.Second.Handle is not null;
+                    Resource.Release.SetResult();
+                    await disposal;
+                    return correctStorageCleared && owner.First.Handle is null && owner.Second.Handle is not null;
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner
+            {
+                public Resource First = new Resource(new object());
+                public Resource Second = new Resource(new object());
+                private int _getterCalls;
+
+                [DisposeMember]
+                public ref Resource Resource
+                {
+                    get
+                    {
+                        _getterCalls++;
+                        if (_getterCalls == 1)
+                        {
+                            return ref First;
+                        }
+
+                        return ref Second;
+                    }
+                }
+            }
+
+            public struct Resource(object handle) : IAsyncDisposable
+            {
+                public static TaskCompletionSource Started { get; } =
+                    new(TaskCreationOptions.RunContinuationsAsynchronously);
+                public static TaskCompletionSource Release { get; } =
+                    new(TaskCreationOptions.RunContinuationsAsynchronously);
+                public object? Handle { get; private set; } = handle;
+
+                public async ValueTask DisposeAsync()
+                {
+                    Started.SetResult();
+                    await Release.Task;
+                    Handle = null;
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("__DisposeConstrainedByRefAsync(ref this.Resource)", result.GeneratedSource, StringComparison.Ordinal);
+        var task = (Task<bool>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.True(await task);
+    }
+
+    [Fact]
+    public async Task Async_nullable_struct_ref_return_property_uses_one_storage_location()
+    {
+        const string source = """
+            using System;
+            using System.Threading.Tasks;
+            using DisposableGenerator;
+
+            public static class Scenario
+            {
+                public static async Task<string> Run()
+                {
+                    var owner = new Owner();
+                    var disposal = owner.DisposeAsync();
+                    await Resource.Started.Task;
+                    var correctStorageCleared = !owner.First.HasValue && owner.Second!.Value.Handle is not null;
+                    Resource.Release.SetResult();
+                    await disposal;
+                    return correctStorageCleared + "," + owner.First.HasValue + "," +
+                        owner.Second.HasValue + "," + (owner.Second!.Value.Handle is not null);
+                }
+            }
+
+            [GenerateDisposable(GenerateSynchronousDispose = false, GenerateAsyncDispose = true)]
+            public sealed partial class Owner
+            {
+                public Resource? First = new Resource(new object());
+                public Resource? Second = new Resource(new object());
+                private int _getterCalls;
+
+                [DisposeMember]
+                public ref Resource? Resource
+                {
+                    get
+                    {
+                        _getterCalls++;
+                        if (_getterCalls == 1)
+                        {
+                            return ref First;
+                        }
+
+                        return ref Second;
+                    }
+                }
+            }
+
+            public struct Resource(object handle) : IAsyncDisposable
+            {
+                public static TaskCompletionSource Started { get; } =
+                    new(TaskCreationOptions.RunContinuationsAsynchronously);
+                public static TaskCompletionSource Release { get; } =
+                    new(TaskCreationOptions.RunContinuationsAsynchronously);
+                public object? Handle { get; private set; } = handle;
+
+                public async ValueTask DisposeAsync()
+                {
+                    Started.SetResult();
+                    await Release.Task;
+                    Handle = null;
+                }
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source, languageVersion: LanguageVersion.CSharp12);
+
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("__DisposeNullableConstrainedByRefAsync(ref this.Resource)", result.GeneratedSource, StringComparison.Ordinal);
+        var task = (Task<string>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
+        Assert.Equal("True,False,True,True", await task);
     }
 
     [Fact]
@@ -903,7 +1152,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
 
         Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
         var task = (Task<string>)result.EmitAndLoad().GetType("Scenario")!.GetMethod("Run")!.Invoke(null, null)!;
-        Assert.Equal("dispose,set", await task);
+        Assert.Equal("set,dispose", await task);
     }
 
     [Fact]
@@ -919,7 +1168,7 @@ public sealed class AsyncAndUnmanagedBehaviorTests
                 {
                     var owner = new Owner();
                     owner.Dispose();
-                    return owner.GetterCalls + "," + owner.Stored!.Value.Disposed;
+                    return owner.GetterCalls + "," + !owner.Stored.HasValue;
                 }
             }
 
