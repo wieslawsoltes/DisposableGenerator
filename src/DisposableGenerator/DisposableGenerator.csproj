@@ -13,6 +13,8 @@
     <Title>DisposableGenerator</Title>
     <Description>An incremental C# source generator for explicit, inheritance-safe IDisposable and IAsyncDisposable ownership.</Description>
     <PackageTags>csharp source-generator roslyn idisposable iasyncdisposable dispose analyzer finalizer</PackageTags>
+    <PackageProjectUrl>https://github.com/wieslawsoltes/DisposableGenerator</PackageProjectUrl>
+    <PackageReleaseNotes>https://github.com/wieslawsoltes/DisposableGenerator/blob/v$(VersionPrefix)/CHANGELOG.md</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
@@ -25,6 +27,7 @@
     <None Include="$(TargetPath)" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="buildTransitive/DisposableGenerator.props" Pack="true" PackagePath="buildTransitive/DisposableGenerator.props" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../CHANGELOG.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>
