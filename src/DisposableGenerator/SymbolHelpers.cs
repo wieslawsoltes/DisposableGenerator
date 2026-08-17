@@ -33,24 +33,18 @@ internal static class SymbolHelpers
 
     internal static bool RequiresConstrainedDisposalDispatch(this ITypeSymbol type)
     {
-        if (type.IsRefLikeType)
+        if (type is ITypeParameterSymbol)
         {
             return true;
         }
 
-        if (type is not ITypeParameterSymbol typeParameter ||
-            typeParameter.ContainingSymbol is not INamedTypeSymbol containingType)
+        if (type is INamedTypeSymbol namedType &&
+            namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
         {
             return false;
         }
 
-        return containingType.DeclaringSyntaxReferences.Any(reference =>
-            reference.GetSyntax() is TypeDeclarationSyntax declaration &&
-            declaration.ConstraintClauses.Any(clause =>
-                clause.Name.Identifier.ValueText == typeParameter.Name &&
-                clause.Constraints.Any(constraint =>
-                    constraint.DescendantTokens().Select(token => token.ValueText).SequenceEqual(
-                        new[] { "allows", "ref", "struct" }))));
+        return type.IsValueType;
     }
 
     internal static bool IsDisposable(
