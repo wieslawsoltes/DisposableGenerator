@@ -418,6 +418,31 @@ public sealed class GeneratorDiagnosticTests
     }
 
     [Fact]
+    public void Failed_generated_member_type_is_not_classified_as_disposable()
+    {
+        const string source = """
+            using DisposableGenerator;
+
+            [GenerateDisposable]
+            public sealed class Bad { }
+
+            [GenerateDisposable]
+            public sealed partial class Owner
+            {
+                [DisposeMember] private readonly Bad _bad = new();
+            }
+            """;
+
+        var result = GeneratorTestHarness.Run(source);
+
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP001");
+        Assert.Contains(result.AllDiagnostics, diagnostic => diagnostic.Id == "DISP003");
+        Assert.DoesNotContain(result.AllDiagnostics, diagnostic => diagnostic.Id == "CS0030");
+        Assert.Contains("partial class Owner", result.GeneratedSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("this._bad", result.GeneratedSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Nullable_disposable_value_type_can_be_owned()
     {
         const string source = """

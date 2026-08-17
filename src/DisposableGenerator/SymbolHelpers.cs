@@ -31,7 +31,10 @@ internal static class SymbolHelpers
             reference.GetSyntax() is TypeDeclarationSyntax declaration &&
             declaration.Modifiers.Any(SyntaxKind.FileKeyword));
 
-    internal static bool IsDisposable(this ITypeSymbol type, INamedTypeSymbol disposableInterface)
+    internal static bool IsDisposable(
+        this ITypeSymbol type,
+        INamedTypeSymbol disposableInterface,
+        ISet<INamedTypeSymbol>? generatedTypes = null)
     {
         if (SymbolEqualityComparer.Default.Equals(type, disposableInterface))
         {
@@ -42,7 +45,7 @@ internal static class SymbolHelpers
         {
             if (namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
                 namedType.TypeArguments.Length == 1 &&
-                namedType.TypeArguments[0].IsDisposable(disposableInterface))
+                namedType.TypeArguments[0].IsDisposable(disposableInterface, generatedTypes))
             {
                 return true;
             }
@@ -50,7 +53,8 @@ internal static class SymbolHelpers
             for (var current = namedType; current is not null; current = current.BaseType)
             {
                 var generationAttribute = current.GetAttribute(GenerateDisposableAttributeName);
-                if (generationAttribute is not null &&
+                if (generatedTypes?.Contains(current.OriginalDefinition) == true &&
+                    generationAttribute is not null &&
                     generationAttribute.GetNamedBoolean("GenerateSynchronousDispose", defaultValue: true))
                 {
                     return true;
@@ -61,7 +65,10 @@ internal static class SymbolHelpers
         return type.AllInterfaces.Any(@interface => SymbolEqualityComparer.Default.Equals(@interface, disposableInterface));
     }
 
-    internal static bool IsAsyncDisposable(this ITypeSymbol type, INamedTypeSymbol? asyncDisposableInterface)
+    internal static bool IsAsyncDisposable(
+        this ITypeSymbol type,
+        INamedTypeSymbol? asyncDisposableInterface,
+        ISet<INamedTypeSymbol>? generatedTypes = null)
     {
         if (asyncDisposableInterface is null)
         {
@@ -77,7 +84,7 @@ internal static class SymbolHelpers
         {
             if (namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
                 namedType.TypeArguments.Length == 1 &&
-                namedType.TypeArguments[0].IsAsyncDisposable(asyncDisposableInterface))
+                namedType.TypeArguments[0].IsAsyncDisposable(asyncDisposableInterface, generatedTypes))
             {
                 return true;
             }
@@ -85,7 +92,9 @@ internal static class SymbolHelpers
             for (var current = namedType; current is not null; current = current.BaseType)
             {
                 var attribute = current.GetAttribute(GenerateDisposableAttributeName);
-                if (attribute is not null && attribute.GetNamedBoolean("GenerateAsyncDispose"))
+                if (generatedTypes?.Contains(current.OriginalDefinition) == true &&
+                    attribute is not null &&
+                    attribute.GetNamedBoolean("GenerateAsyncDispose"))
                 {
                     return true;
                 }

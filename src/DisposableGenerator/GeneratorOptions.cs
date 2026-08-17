@@ -133,6 +133,8 @@ internal sealed class GeneratorOptions
         methodName != "DisposeUnmanaged" &&
         methodName != "__DisposableGenerator_disposeState" &&
         methodName != "__DisposableGenerator_disposalStarted" &&
+        methodName != "__DisposableGenerator_asyncCleanupCompleted" &&
+        methodName != "__DisposableGenerator_unmanagedDisposeState" &&
         methodName != "__DisposableGenerator_disposeGate" &&
         methodName != "__DisposableGenerator_registeredDisposables";
 
